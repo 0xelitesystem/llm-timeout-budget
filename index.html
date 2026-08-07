@@ -1,0 +1,2121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LLM Timeout Budget - model a worst-case LLM request against every timeout in the path</title>
+<meta name="description" content="Model how long your worst-case LLM request really takes, check it against every idle, total and execution timeout between your code and the API, and find out whether streaming saves you or does nothing at all. Runs entirely in your browser.">
+<link rel="canonical" href="https://0xelitesystem.github.io/llm-timeout-budget/">
+<meta property="og:title" content="LLM Timeout Budget - model a worst-case LLM request against every timeout in the path">
+<meta property="og:description" content="Model your worst-case LLM request end to end, check it against every timeout between your code and the API, and see which layer kills it first. No network calls, no key, no backend.">
+<meta property="og:url" content="https://0xelitesystem.github.io/llm-timeout-budget/">
+<meta property="og:type" content="website">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"SoftwareApplication","name":"LLM Timeout Budget","description":"Model a worst-case LLM request end to end and check it against every idle, total and execution timeout between your code and the provider API. Client-side only.","url":"https://0xelitesystem.github.io/llm-timeout-budget/","applicationCategory":"DeveloperApplication","operatingSystem":"Any modern web browser","isAccessibleForFree":true,"offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"author":{"@type":"Organization","name":"elitesystem.ai","url":"https://elitesystem.ai"}}
+</script>
+<style>
+:root{
+  --bg:#0b0f14; --panel:#111820; --panel2:#0e141b; --line:#1f2b36; --line2:#2b3a48;
+  --tx:#dfe7ef; --mut:#8fa3b5; --dim:#66798c;
+  --acc:#f0a03c; --acc2:#4fb3ff;
+  --pass:#3ecf8e; --fail:#ff6b6b; --warn:#ffb454; --unk:#7d8ea0;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  --sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --r:10px;
+}
+:root[data-theme="light"]{
+  --bg:#f6f8fb; --panel:#ffffff; --panel2:#f0f4f8; --line:#dbe3ec; --line2:#c4d1de;
+  --tx:#101820; --mut:#4f6377; --dim:#6c8093;
+  --acc:#a15b00; --acc2:#0a63b8;
+  --pass:#0d7a4f; --fail:#c0362c; --warn:#8a5a00; --unk:#5d6f80;
+}
+@media (prefers-color-scheme: light){
+  :root:not([data-theme="dark"]){
+    --bg:#f6f8fb; --panel:#ffffff; --panel2:#f0f4f8; --line:#dbe3ec; --line2:#c4d1de;
+    --tx:#101820; --mut:#4f6377; --dim:#6c8093;
+    --acc:#a15b00; --acc2:#0a63b8;
+    --pass:#0d7a4f; --fail:#c0362c; --warn:#8a5a00; --unk:#5d6f80;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0b0f14; --panel:#111820; --panel2:#0e141b; --line:#1f2b36; --line2:#2b3a48;
+  --tx:#dfe7ef; --mut:#8fa3b5; --dim:#66798c;
+  --acc:#f0a03c; --acc2:#4fb3ff;
+  --pass:#3ecf8e; --fail:#ff6b6b; --warn:#ffb454; --unk:#7d8ea0;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;overflow-x:hidden}
+body{
+  background:var(--bg); color:var(--tx); font-family:var(--sans);
+  font-size:15px; line-height:1.55; -webkit-text-size-adjust:100%;
+}
+/* Grid and flex children default to min-width:auto, which refuses to shrink below
+   their content. Any descendant with a min-width (the tables, the timelines, the
+   code blocks) would then push the whole page sideways. Let them shrink and let
+   their own overflow-x container do the scrolling. */
+.grid > *, .traps > *, .links > *{min-width:0}
+img,svg{max-width:100%}
+.wrap{max-width:1120px;margin:0 auto;padding:0 16px 72px}
+a{color:var(--acc2)}
+a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{
+  outline:2px solid var(--acc); outline-offset:2px; border-radius:4px;
+}
+h1,h2,h3{line-height:1.2;margin:0 0 .4em}
+h1{font-size:clamp(1.5rem,4.2vw,2.1rem);letter-spacing:-.02em}
+h2{font-size:clamp(1.12rem,2.6vw,1.32rem);letter-spacing:-.01em}
+h3{font-size:1rem}
+p{margin:0 0 .8em}
+code,kbd,.mono{font-family:var(--mono);font-size:.88em}
+
+header.top{border-bottom:1px solid var(--line);background:var(--panel2);padding:14px 0 18px;margin-bottom:22px}
+.topbar{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.brand{font-family:var(--mono);font-size:.78rem;letter-spacing:.14em;text-transform:uppercase;color:var(--acc)}
+.lede{color:var(--mut);max-width:74ch;margin-top:6px}
+.badges{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.badge{font-family:var(--mono);font-size:.72rem;border:1px solid var(--line2);color:var(--mut);
+  padding:4px 8px;border-radius:999px;background:var(--panel)}
+.badge.ok{border-color:var(--pass);color:var(--pass)}
+
+button{font:inherit;cursor:pointer}
+.btn{background:var(--panel);color:var(--tx);border:1px solid var(--line2);border-radius:8px;
+  padding:7px 12px;font-size:.86rem;transition:border-color .12s,background .12s}
+.btn:hover{border-color:var(--acc)}
+.btn.primary{background:var(--acc);color:#10161d;border-color:var(--acc);font-weight:600}
+:root[data-theme="light"] .btn.primary{color:#fff}
+@media (prefers-color-scheme: light){:root:not([data-theme="dark"]) .btn.primary{color:#fff}}
+.btn.small{padding:3px 8px;font-size:.78rem}
+.btn.ghost{background:transparent}
+
+section.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);
+  padding:18px;margin:0 0 22px}
+.sec-head{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;margin-bottom:4px}
+.sec-num{font-family:var(--mono);color:var(--acc);font-size:.78rem;letter-spacing:.1em}
+.hint{color:var(--mut);font-size:.86rem;margin:0 0 14px;max-width:82ch}
+
+.grid{display:grid;gap:12px}
+@media(min-width:640px){.grid.c2{grid-template-columns:repeat(2,1fr)}.grid.c3{grid-template-columns:repeat(3,1fr)}}
+@media(min-width:900px){.grid.c4{grid-template-columns:repeat(4,1fr)}}
+
+label.f{display:block;font-size:.8rem;color:var(--mut);margin-bottom:4px}
+label.f .req{color:var(--dim);font-weight:400}
+input[type=number],input[type=text],select,textarea{
+  width:100%;background:var(--panel2);color:var(--tx);border:1px solid var(--line2);
+  border-radius:7px;padding:7px 9px;font-family:var(--mono);font-size:.86rem}
+input:disabled{opacity:.5}
+.ph{font-size:.7rem;color:var(--dim);margin-top:3px;font-style:italic}
+.err{color:var(--fail);font-size:.78rem;margin-top:3px}
+
+.calc{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:12px 14px;margin-top:16px}
+.calc .line{font-family:var(--mono);font-size:.84rem;display:flex;justify-content:space-between;gap:14px;
+  padding:3px 0;border-bottom:1px dotted var(--line);flex-wrap:wrap}
+.calc .line:last-child{border-bottom:0}
+.calc .line.total{font-weight:700;color:var(--acc);border-bottom:0;border-top:1px solid var(--line2);margin-top:5px;padding-top:8px}
+.calc .lbl{color:var(--mut)}
+
+.tlwrap{margin-top:16px;overflow-x:auto;padding-bottom:6px}
+.tl{min-width:520px}
+.tlbar{display:flex;height:34px;border-radius:6px;overflow:hidden;border:1px solid var(--line2);background:var(--panel2)}
+.seg{display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:.7rem;
+  white-space:nowrap;overflow:hidden;color:#0b0f14}
+.seg.silent{background:repeating-linear-gradient(45deg,var(--warn),var(--warn) 6px,rgba(0,0,0,.18) 6px,rgba(0,0,0,.18) 12px)}
+.seg.stream{background:var(--acc2);color:#04121f}
+.seg.allow{background:var(--unk)}
+.tlticks{position:relative;height:46px;margin-top:2px}
+.tick{position:absolute;top:0;transform:translateX(-1px)}
+.tick i{display:block;width:2px;height:12px;background:var(--fail)}
+.tick.pass i{background:var(--pass)}
+.tick span{display:block;font-family:var(--mono);font-size:.66rem;color:var(--mut);white-space:nowrap;
+  transform:translateX(-50%);margin-top:2px;max-width:150px;overflow:hidden;text-overflow:ellipsis}
+.tlkey{display:flex;gap:14px;flex-wrap:wrap;font-size:.74rem;color:var(--mut);margin-top:6px}
+.tlkey i{display:inline-block;width:10px;height:10px;border-radius:2px;vertical-align:-1px;margin-right:5px}
+
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:8px;margin-top:6px}
+table{border-collapse:collapse;width:100%;min-width:760px}
+th,td{text-align:left;padding:8px 10px;font-size:.84rem;vertical-align:top}
+thead th{background:var(--panel2);color:var(--mut);font-weight:600;font-size:.74rem;
+  text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid var(--line2);white-space:nowrap}
+tbody.layer{border-bottom:1px solid var(--line)}
+tbody.layer:last-child{border-bottom:0}
+tr.detail td{padding-top:0;color:var(--mut);font-size:.78rem}
+td.narrow{width:1%;white-space:nowrap}
+.rowbtns{display:flex;gap:4px}
+
+.v{font-family:var(--mono);font-size:.74rem;font-weight:700;padding:3px 7px;border-radius:5px;
+  border:1px solid;white-space:nowrap;display:inline-block}
+.v.PASS{color:var(--pass);border-color:var(--pass)}
+.v.FAIL{color:var(--fail);border-color:var(--fail)}
+.v.STREAM{color:var(--warn);border-color:var(--warn)}
+.v.UNKNOWN{color:var(--unk);border-color:var(--unk)}
+
+.note{border-left:3px solid var(--line2);padding:8px 0 8px 12px;margin:12px 0;color:var(--mut);font-size:.84rem}
+.note.warn{border-color:var(--warn);color:var(--tx)}
+.note.bad{border-color:var(--fail);color:var(--tx)}
+.note.ok{border-color:var(--pass);color:var(--tx)}
+.note strong{color:var(--tx)}
+
+.headline{background:var(--panel2);border:1px solid var(--line2);border-left:4px solid var(--acc);
+  border-radius:8px;padding:14px 16px;margin-top:16px}
+.headline h3{margin:0 0 6px;font-family:var(--mono);font-size:.78rem;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--acc)}
+.headline p{margin:0 0 6px}
+.headline p:last-child{margin:0}
+
+.cmp{width:100%;min-width:520px}
+.cmp td,.cmp th{border-bottom:1px solid var(--line)}
+.yes{color:var(--pass);font-weight:700}
+.no{color:var(--fail);font-weight:700}
+
+.traps{display:grid;gap:14px}
+@media(min-width:860px){.traps{grid-template-columns:repeat(2,1fr)}}
+.trap{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:14px}
+.trap h3{margin:0 0 2px;font-size:.95rem}
+.stamp{font-family:var(--mono);font-size:.7rem;color:var(--acc);display:block;margin-bottom:8px}
+.trap p{font-size:.85rem;margin:0 0 .6em}
+.trap .fixlbl{color:var(--pass);font-weight:700;font-size:.8rem}
+pre{background:var(--bg);border:1px solid var(--line2);border-radius:7px;padding:11px;
+  overflow-x:auto;font-family:var(--mono);font-size:.76rem;line-height:1.5;margin:8px 0 0}
+:root[data-theme="light"] pre{background:#eef2f7}
+@media (prefers-color-scheme: light){:root:not([data-theme="dark"]) pre{background:#eef2f7}}
+
+.out{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:14px;margin-top:6px}
+.out pre{white-space:pre-wrap;word-break:break-word;max-height:420px;overflow:auto}
+.copyrow{display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
+ol.changes{margin:0;padding-left:20px}
+ol.changes li{margin-bottom:8px;font-size:.88rem}
+ol.changes .gain{font-family:var(--mono);color:var(--acc);font-size:.8rem}
+
+.ref th,.ref td{border-bottom:1px solid var(--line);font-size:.8rem}
+.ref .dated{background:var(--panel2)}
+
+.links{display:grid;gap:10px}
+@media(min-width:760px){.links{grid-template-columns:repeat(2,1fr)}}
+.links a.lk{display:block;background:var(--panel2);border:1px solid var(--line);border-radius:8px;
+  padding:11px 13px;text-decoration:none;color:var(--tx)}
+.links a.lk:hover{border-color:var(--acc)}
+.links a.lk b{display:block;font-family:var(--mono);font-size:.84rem;color:var(--acc2)}
+.links a.lk span{display:block;color:var(--mut);font-size:.82rem;margin-top:3px}
+
+.empty{padding:22px;text-align:center;color:var(--mut);font-size:.88rem;
+  border:1px dashed var(--line2);border-radius:8px;margin-top:6px}
+
+footer{border-top:1px solid var(--line);margin-top:34px;padding-top:18px;color:var(--mut);font-size:.84rem}
+footer a{margin-right:16px}
+.sr{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+</style>
+</head>
+<body>
+<script>
+(function(){
+  try{
+    var t = localStorage.getItem("ltb-theme");
+    if(t === "light" || t === "dark"){ document.documentElement.setAttribute("data-theme", t); }
+  }catch(e){}
+})();
+</script>
+
+<header class="top">
+  <div class="wrap">
+    <div class="topbar">
+      <div class="brand">llm-timeout-budget</div>
+      <button class="btn small" id="themeBtn" type="button" aria-label="Toggle colour theme">Theme</button>
+    </div>
+    <h1>Works locally, 504s in staging</h1>
+    <p class="lede">Model how long your worst-case LLM request really takes end to end, check it against every
+      timeout sitting between your code and the API, and find out whether streaming saves you or does nothing at all.</p>
+    <div class="badges">
+      <span class="badge ok">No network calls</span>
+      <span class="badge">No API key</span>
+      <span class="badge">No backend</span>
+      <span class="badge">Planning estimate, not a guarantee</span>
+      <span class="badge">Facts confirmed 2026-08-07</span>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+<div class="note warn" role="note">
+  <strong>This tool measures nothing.</strong> It never sends a request, to your provider or to anyone else.
+  Time-to-first-token and tokens-per-second are numbers <em>you</em> enter from your own observation.
+  Every prefilled figure is a placeholder. There are no benchmark tables here, no per-model throughput numbers
+  and no latency comparison between providers or models, because publishing throughput figures nobody measured
+  would be fabricated benchmarking.
+</div>
+
+<!-- ============ SECTION 1 ============ -->
+<section class="card" id="s1">
+  <div class="sec-head"><span class="sec-num">01</span><h2>The request model</h2></div>
+  <p class="hint">All six figures below are yours. The tool does not infer time-to-first-token from your input
+    token count and does not know how fast any model is. Measure once against your own route, paste the numbers in,
+    then use the scenario multipliers to ask what the bad day looks like.</p>
+
+  <div class="grid c4">
+    <div>
+      <label class="f" for="inTok">Expected input tokens</label>
+      <input type="number" id="inTok" min="0" step="1" value="8000">
+      <div class="ph">illustrative placeholder - replace with your own measurement</div>
+    </div>
+    <div>
+      <label class="f" for="outTok">Expected visible output tokens</label>
+      <input type="number" id="outTok" min="0" step="1" value="2000">
+      <div class="ph">illustrative placeholder - replace with your own measurement</div>
+    </div>
+    <div>
+      <label class="f" for="thinkTok">Reasoning / thinking tokens</label>
+      <input type="number" id="thinkTok" min="0" step="1" value="0">
+      <div class="ph">illustrative placeholder - these burn wall clock while emitting nothing visible</div>
+    </div>
+    <div>
+      <label class="f" for="maxTok">max_tokens sent on the request</label>
+      <input type="number" id="maxTok" min="0" step="1" value="8000">
+      <div class="ph">illustrative placeholder - used only by the SDK rescaling check below</div>
+    </div>
+  </div>
+
+  <div class="grid c4" style="margin-top:12px">
+    <div>
+      <label class="f" for="ttft">Observed time to first token (s)</label>
+      <input type="number" id="ttft" min="0" step="0.1" value="3">
+      <div class="ph">illustrative placeholder - replace with your own measurement</div>
+    </div>
+    <div>
+      <label class="f" for="tps">Observed output tokens / second</label>
+      <input type="number" id="tps" min="0" step="0.1" value="40">
+      <div class="ph">illustrative placeholder - replace with your own measurement</div>
+    </div>
+    <div>
+      <label class="f" for="allow">Queue / overload allowance (s)</label>
+      <input type="number" id="allow" min="0" step="0.5" value="5">
+      <div class="ph">illustrative placeholder - your own headroom for a busy provider</div>
+    </div>
+    <div>
+      <label class="f" for="thinkMode">Where the thinking time sits</label>
+      <select id="thinkMode">
+        <option value="inside">Inside the observed time to first token</option>
+        <option value="add">Added on top of the observed time to first token</option>
+        <option value="stream">Streamed as it is produced (counts as output)</option>
+      </select>
+      <div class="ph">pick the one that matches how you measured, so nothing is counted twice</div>
+    </div>
+  </div>
+
+  <div class="grid c4" style="margin-top:12px">
+    <div>
+      <label class="f" for="scenario">Scenario</label>
+      <select id="scenario">
+        <option value="p50">p50 (typical)</option>
+        <option value="p95">p95</option>
+        <option value="worst">Worst case</option>
+        <option value="custom">Custom</option>
+      </select>
+      <div class="ph">selects the three multipliers below; edit any of them to go custom</div>
+    </div>
+    <div>
+      <label class="f" for="mTtft">Time-to-first-token multiplier</label>
+      <input type="number" id="mTtft" min="0" step="0.05" value="1">
+      <div class="ph">above 1 means slower</div>
+    </div>
+    <div>
+      <label class="f" for="mTps">Throughput multiplier</label>
+      <input type="number" id="mTps" min="0.01" step="0.05" value="1">
+      <div class="ph">below 1 means slower, so worst case is below 1</div>
+    </div>
+    <div>
+      <label class="f" for="mAllow">Allowance multiplier</label>
+      <input type="number" id="mAllow" min="0" step="0.1" value="1">
+      <div class="ph">above 1 means a longer queue</div>
+    </div>
+  </div>
+
+  <div id="modelErrors" role="alert"></div>
+
+  <div class="calc" id="calcBox" aria-live="polite"></div>
+
+  <div class="tlwrap">
+    <div class="tl" id="timeline1"></div>
+  </div>
+</section>
+
+<!-- ============ SECTION 2 ============ -->
+<section class="card" id="s2">
+  <div class="sec-head"><span class="sec-num">02</span><h2>The timeout stack</h2></div>
+  <p class="hint">Every layer between your process and the provider gets a row. The <strong>kind</strong> column is the
+    whole lesson. An <strong>idle</strong> timeout is reset by every byte received. A <strong>total</strong> timeout counts
+    wall clock from the start of the request and is reset by nothing. An <strong>execution</strong> ceiling meters
+    compute time and ignores the distinction entirely. Streaming defeats exactly one of those three.</p>
+
+  <div class="grid c3" style="margin-bottom:14px">
+    <div>
+      <label class="f" for="retries">Retry count (attempts = retries + 1)</label>
+      <input type="number" id="retries" min="0" max="20" step="1" value="2">
+      <div class="ph">2 is the documented default in every current Anthropic SDK (confirmed 2026-08-07)</div>
+    </div>
+    <div>
+      <label class="f" for="backoff">Total backoff across all retries (s)</label>
+      <input type="number" id="backoff" min="0" step="0.5" value="0">
+      <div class="ph">this tool does not compute backoff - bring the worst-case wait from retry-backoff-calculator</div>
+    </div>
+    <div>
+      <label class="f" for="rescale">SDK rescales its own default timeout</label>
+      <select id="rescale">
+        <option value="none">No, my configured timeout is the deadline</option>
+        <option value="ts">Yes - TypeScript SDK, non-streaming, scaled by max_tokens</option>
+        <option value="javastream">Yes - Java SDK, streaming, scaled by maxTokens</option>
+        <option value="javanon">Yes - Java SDK, non-streaming (bounded, formula not published)</option>
+      </select>
+      <div class="ph">see trap (c) below</div>
+    </div>
+  </div>
+  <div id="rescaleOut"></div>
+
+  <div class="copyrow">
+    <button class="btn small" id="addRow" type="button">Add layer</button>
+    <button class="btn small ghost" id="clearRows" type="button">Clear all</button>
+    <span class="ph" style="margin:0">Blank or zero renders UNKNOWN, never PASS.</span>
+  </div>
+
+  <div class="tablewrap" id="stackWrap">
+    <table id="stackTable">
+      <thead>
+        <tr>
+          <th scope="col">Layer</th>
+          <th scope="col">Kind</th>
+          <th scope="col">Value</th>
+          <th scope="col">Unit</th>
+          <th scope="col" title="Does a retry loop above this layer make its budget cumulative?">Retries stack</th>
+          <th scope="col">Verdict</th>
+          <th scope="col"><span class="sr">Actions</span></th>
+        </tr>
+      </thead>
+    </table>
+  </div>
+  <div id="stackEmpty"></div>
+
+  <div class="grid c2" style="margin-top:14px">
+    <div class="calc" style="margin-top:0">
+      <h3 style="margin-top:0;font-family:var(--mono);font-size:.78rem;letter-spacing:.1em;text-transform:uppercase;color:var(--acc)">Unit converter</h3>
+      <div class="grid c3">
+        <div>
+          <label class="f" for="ucVal">Value</label>
+          <input type="number" id="ucVal" step="any" value="600">
+        </div>
+        <div>
+          <label class="f" for="ucUnit">Unit</label>
+          <select id="ucUnit"><option value="ms">milliseconds</option><option value="s" selected>seconds</option><option value="min">minutes</option></select>
+        </div>
+        <div>
+          <label class="f">Equals</label>
+          <div class="mono" id="ucOut" style="padding-top:7px;color:var(--acc)"></div>
+        </div>
+      </div>
+      <div class="ph">The Anthropic TypeScript SDK takes milliseconds. Python and Ruby take seconds.
+        A value copied between them is off by a factor of a thousand.</div>
+    </div>
+    <div class="calc" style="margin-top:0">
+      <h3 style="margin-top:0;font-family:var(--mono);font-size:.78rem;letter-spacing:.1em;text-transform:uppercase;color:var(--acc)">Does streaming help?</h3>
+      <div class="tablewrap" style="margin-top:0;border:0">
+        <table class="cmp">
+          <thead><tr><th scope="col">Kind</th><th scope="col">Non-streaming</th><th scope="col">Streaming</th><th scope="col">Helps?</th></tr></thead>
+          <tbody>
+            <tr><td>Idle</td><td>Dies at the limit - nothing arrives until the end</td><td>Timer resets on every byte received</td><td class="yes">YES</td></tr>
+            <tr><td>Total</td><td>Dies at the limit</td><td>Dies at the same limit</td><td class="no">NO</td></tr>
+            <tr><td>Execution</td><td>Dies at the limit</td><td>Dies at the same limit</td><td class="no">NO</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="ph">"Just use streaming" is the wrong answer in two of the three rows.</div>
+    </div>
+  </div>
+
+  <div id="headlineBox"></div>
+  <div id="stackNotes"></div>
+
+  <h3 style="margin-top:22px">Retry-multiplied budget</h3>
+  <p class="hint">Timeouts are themselves retried, so the number that actually crosses an infrastructure ceiling is
+    the per-attempt duration times the number of attempts. Idle timeouts reset on each fresh attempt, so only layers
+    whose budget accumulates across the retry loop are drawn here.</p>
+  <div class="tlwrap"><div class="tl" id="timeline2"></div></div>
+  <div id="retryNotes"></div>
+</section>
+
+<!-- ============ SECTION 3 ============ -->
+<section class="card" id="s3">
+  <div class="sec-head"><span class="sec-num">03</span><h2>The client-library trap panel</h2></div>
+  <p class="hint">These four are properties of the libraries themselves rather than claims about any vendor's
+    infrastructure, which is why each one carries the package and version it was read in. Library behaviour changes:
+    re-check these against the version you actually have installed.</p>
+
+  <div class="traps">
+    <article class="trap">
+      <h3>(a) The timeout you set is per chunk, not a deadline</h3>
+      <span class="stamp">observed in requests 2.34.2 and httpx 0.28.1, confirmed 2026-08-07</span>
+      <p>The timeouts people reach for in the two dominant Python HTTP libraries are read timeouts that reset every
+        time bytes arrive. The requests documentation defines the read timeout as "the number of seconds that the
+        client will wait <em>between</em> bytes sent from the server" and states plainly that "neither the connect nor
+        read timeouts are wall clock". The httpx documentation defines its read timeout as "the maximum duration to
+        wait for a chunk of data to be received" and offers four knobs - connect, read, write and pool.</p>
+      <p><strong>The failure:</strong> a response that trickles, or a proxy that dribbles keep-alive bytes, blocks your
+        call indefinitely under a setting that reads like a hard deadline. Neither library documents a
+        total-wall-clock option at all, so there is nothing to switch on.</p>
+      <p><span class="fixlbl">Fix:</span> keep a monotonic clock at the loop level and bail out yourself, or wrap the
+        whole call in an async timeout.</p>
+      <div class="copyrow" style="margin-top:8px;margin-bottom:0">
+        <button class="btn small" data-copy="snip1" type="button">Copy snippet</button>
+      </div>
+      <pre id="snip1">import time
+import httpx
+
+DEADLINE_SECONDS = 600.0   # your wall-clock budget, enforced by you
+
+def stream_with_deadline(url, payload):
+    started = time.monotonic()
+    # 30.0 here is a PER-CHUNK read timeout. It is not a deadline.
+    with httpx.stream("POST", url, json=payload,
+                      timeout=httpx.Timeout(30.0)) as response:
+        for chunk in response.iter_bytes():
+            elapsed = time.monotonic() - started
+            if elapsed &gt; DEADLINE_SECONDS:
+                raise TimeoutError(
+                    "wall-clock budget exceeded after "
+                    + str(round(elapsed, 1)) + "s"
+                )
+            yield chunk
+
+# async equivalent:
+#   await asyncio.wait_for(do_request(), timeout=DEADLINE_SECONDS)</pre>
+    </article>
+
+    <article class="trap">
+      <h3>(b) The unit is not the same in every language</h3>
+      <span class="stamp">observed in anthropic 0.121.0 (Python), @anthropic-ai/sdk 0.116.0 (TypeScript), anthropic 1.61.0 (Ruby gem), anthropic-sdk-go v1.62.0, com.anthropic:anthropic-java 2.52.0, Anthropic 12.40.0 (NuGet); confirmed 2026-08-07</span>
+      <p>Every one of those SDKs documents a 10 minute default, and each expresses it differently. (Go scopes its
+        10 minutes to non-streaming Messages requests and documents no default timeout at all for anything else.)
+        Python takes
+        a float in <em>seconds</em> (or an httpx.Timeout). Ruby takes <em>seconds</em>. TypeScript takes
+        <em>milliseconds</em> - its own example reads <code>timeout: 20 * 1000</code> for twenty seconds. Go takes a
+        <code>time.Duration</code> through <code>option.WithRequestTimeout</code>, and that one is a
+        <em>per-retry</em> timeout rather than a whole-call one. Java takes a <code>Duration</code>, C# a
+        <code>TimeSpan</code>.</p>
+      <p><strong>The failure:</strong> a value copied from a Python service into a TypeScript one is off by a factor of
+        a thousand in the direction that hurts. <code>600</code> meant as ten minutes becomes six hundred milliseconds.</p>
+      <p><span class="fixlbl">Fix:</span> the converter beside the stack table, and the warning this tool raises when a
+        millisecond field holds a number that looks like somebody's seconds value.</p>
+    </article>
+
+    <article class="trap">
+      <h3>(c) The SDK quietly moves its own default</h3>
+      <span class="stamp">observed in @anthropic-ai/sdk 0.116.0, com.anthropic:anthropic-java 2.52.0, anthropic 0.121.0 (Python); confirmed 2026-08-07</span>
+      <p>The effective deadline is often not the one you configured. The TypeScript SDK documents that for a large
+        <code>max_tokens</code> on a <em>non-streaming</em> request the default timeout is computed as
+        <code>(60 * 60 * maxTokens) / 128000</code> seconds, floored at ten minutes and reaching up to sixty. The Java
+        SDK documents the mirror image: the same shape of formula applies to <em>streaming</em> requests, while its
+        non-streaming default scales from a thirty second minimum to a ten minute maximum.</p>
+      <p>Meanwhile the Python SDK refuses rather than hangs: it "will throw a <code>ValueError</code> if a non-streaming
+        request is expected to take longer than approximately 10 minutes", disabled by passing <code>stream=True</code>
+        or by overriding the timeout. The TypeScript, Go and Java SDKs document the same guard.</p>
+      <p><span class="fixlbl">Fix:</span> set the timeout explicitly so the default never applies, and tick the
+        rescaling option in section 02 to see what your configured value actually becomes.</p>
+    </article>
+
+    <article class="trap">
+      <h3>(d) Timeouts are retried, so multiply</h3>
+      <span class="stamp">observed in anthropic 0.121.0 (Python), @anthropic-ai/sdk 0.116.0 (TypeScript), anthropic 1.61.0 (Ruby gem), anthropic-sdk-go v1.62.0, com.anthropic:anthropic-java 2.52.0, Anthropic 12.40.0 (NuGet); confirmed 2026-08-07</span>
+      <p>All six SDKs document the same policy: connection errors, 408, 409, 429 and 5xx are retried automatically,
+        <strong>two times by default</strong>. The Python and TypeScript docs both add the sentence that catches people
+        out - "requests that time out are retried twice by default". The Ruby docs list timeouts explicitly among the
+        retried conditions.</p>
+      <p><strong>The failure:</strong> your worst-case wall clock is not the timeout, it is the timeout times three.
+        That product is usually what crosses the serverless ceiling or the gateway limit, long after the per-attempt
+        number looked comfortable.</p>
+      <p><span class="fixlbl">Fix:</span> set the retry count deliberately, and budget the whole loop rather than one
+        attempt. Feed the worst-case backoff wait from
+        <a href="https://0xelitesystem.github.io/retry-backoff-calculator/">retry-backoff-calculator</a> into the
+        backoff field in section 02.</p>
+    </article>
+  </div>
+</section>
+
+<!-- ============ SECTION 4 ============ -->
+<section class="card" id="s4">
+  <div class="sec-head"><span class="sec-num">04</span><h2>Output</h2></div>
+  <p class="hint">A planning estimate you can paste into a ticket. It is arithmetic over numbers you supplied, not a
+    guarantee about your production stack.</p>
+
+  <div class="copyrow">
+    <button class="btn primary" id="copyVerdict" type="button">Copy verdict</button>
+    <button class="btn" id="copyMd" type="button">Copy markdown summary</button>
+  </div>
+
+  <div class="out">
+    <pre id="verdictOut"></pre>
+  </div>
+
+  <h3 style="margin-top:20px">What to change, ordered by effect</h3>
+  <p class="hint">Generated from your stack, not from a fixed list. Changes that move the layer which kills the
+    request first are listed before changes that gain more seconds elsewhere, because a change downstream of the
+    binding layer buys nothing until the binding layer is fixed. Within each group the list is ordered by seconds
+    of runway gained.</p>
+  <div id="changesOut"></div>
+
+  <h3 style="margin-top:20px">Markdown summary</h3>
+  <div class="out"><pre id="mdOut"></pre></div>
+</section>
+
+<!-- ============ VENDOR REFERENCE ============ -->
+<section class="card" id="ref">
+  <div class="sec-head"><span class="sec-num">REF</span><h2>Dated vendor reference</h2></div>
+  <p class="hint">This table is <strong>reference material, not part of the arithmetic above</strong>. Every one of
+    these values is configurable and varies by plan tier and by how somebody set it up years ago. The tool computes
+    only against the numbers in your stack table. Confirm each of these in your own configuration and correct the row
+    if it differs - a stale row here can never make the maths above wrong, because the maths above does not read it.</p>
+  <div class="tablewrap">
+    <table class="ref">
+      <thead><tr>
+        <th scope="col">Layer</th><th scope="col">Setting</th><th scope="col">Commonly seen default</th>
+        <th scope="col">Kind</th><th scope="col">Confirmed</th><th scope="col">Source</th>
+      </tr></thead>
+      <tbody class="dated">
+        <tr>
+          <td>nginx reverse proxy</td><td class="mono">proxy_read_timeout</td><td class="mono">60s</td>
+          <td>Idle</td><td class="mono">2026-08-07</td>
+          <td><a href="https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_read_timeout">nginx docs</a></td>
+        </tr>
+        <tr>
+          <td>nginx reverse proxy</td><td class="mono">proxy_buffering</td><td class="mono">on</td>
+          <td>n/a</td><td class="mono">2026-08-07</td>
+          <td><a href="https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_buffering">nginx docs</a></td>
+        </tr>
+        <tr>
+          <td>AWS Application Load Balancer</td><td class="mono">idle_timeout.timeout_seconds</td><td class="mono">60 seconds</td>
+          <td>Idle</td><td class="mono">2026-08-07</td>
+          <td><a href="https://docs.aws.amazon.com/elasticloadbalancing/latest/application/application-load-balancers.html">AWS docs</a></td>
+        </tr>
+        <tr>
+          <td>AWS Lambda</td><td class="mono">Function timeout</td><td class="mono">900 seconds (15 minutes) quota</td>
+          <td>Total</td><td class="mono">2026-08-07</td>
+          <td><a href="https://docs.aws.amazon.com/lambda/latest/dg/gettingstarted-limits.html">AWS docs</a></td>
+        </tr>
+        <tr>
+          <td>Cloudflare edge</td><td class="mono">Proxy Read Timeout (error 524)</td><td class="mono">125 seconds; Enterprise can raise to 6000</td>
+          <td>Not stated - see note</td><td class="mono">2026-08-07</td>
+          <td><a href="https://developers.cloudflare.com/support/troubleshooting/http-status-codes/cloudflare-5xx-errors/error-524/">Cloudflare docs</a></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="note">
+    <strong>Not every timeout tells you which kind it is.</strong> The name "Proxy Read Timeout" reads like an idle
+    timer, but Cloudflare's own 524 page does not say whether the countdown restarts when the origin sends bytes.
+    What it does say is that if your requests exceed 125 seconds, "for example, streaming", you have to raise the
+    value, which is not how an idle timer that streaming defeats would behave. Treat it as a total limit until you
+    have confirmed otherwise on your own zone, and set the kind in your stack table accordingly. That caution
+    generalises: when a vendor names a timeout but does not document its reset behaviour, the safe assumption is the
+    one that does not depend on streaming saving you.
+  </div>
+  <div class="note">
+    <strong>The buffering trap.</strong> nginx documents <code>proxy_buffering</code> as defaulting to <code>on</code>,
+    in which case it "receives a response from the proxied server as soon as possible, saving it into the buffers".
+    Only with buffering off is "the response passed to a client synchronously, immediately as it is received". If a
+    proxy in your path buffers, the client sees nothing until the response completes, and streaming defeats no idle
+    timeout anywhere downstream of it. Check that setting before trusting any streaming verdict on this page.
+  </div>
+  <div class="note">
+    <strong>On heartbeats.</strong> Server-sent events allow comment frames - lines that begin with a colon and carry
+    no data - and a stream that emits them keeps an idle timer alive during a long silent thinking window. Whether
+    your provider actually emits them, and whether every proxy in the path forwards them instead of swallowing or
+    buffering them, is something you have to confirm for your own stack. This tool does not assume either way, and
+    does not claim any particular provider sends them.
+  </div>
+</section>
+
+<!-- ============ CROSS LINKS ============ -->
+<section class="card" id="also">
+  <div class="sec-head"><span class="sec-num">SEE</span><h2>Related tools</h2></div>
+  <div class="links">
+    <a class="lk" href="https://0xelitesystem.github.io/retry-backoff-calculator/">
+      <b>retry-backoff-calculator</b>
+      <span>Compute the delay between attempts there and bring the worst-case wait here as the backoff input.
+        This tool deliberately does not re-implement a backoff table.</span></a>
+    <a class="lk" href="https://0xelitesystem.github.io/llm-stream-inspector/">
+      <b>llm-stream-inspector</b>
+      <span>The postmortem sibling. That one diagnoses a stream that already died from its raw event dump.
+        This one is the preflight that tells you which layer would have killed it.</span></a>
+    <a class="lk" href="https://github.com/0xelitesystem/idempotency-and-safe-retries-reference">
+      <b>idempotency-and-safe-retries-reference</b>
+      <span>Before you retry a request that timed out but may already have been processed, read this.</span></a>
+    <a class="lk" href="https://0xelitesystem.github.io/rate-limit-tester/">
+      <b>rate-limit-tester</b>
+      <span>For empirically probing a live endpoint, which this tool deliberately does not do.</span></a>
+    <a class="lk" href="https://github.com/0xelitesystem/http-status-codes-reference">
+      <b>http-status-codes-reference</b>
+      <span>For reading the 504 you got.</span></a>
+    <a class="lk" href="https://0xelitesystem.github.io/curl-command-builder/">
+      <b>curl-command-builder</b>
+      <span>For reproducing the request by hand once you know which layer to poke.</span></a>
+  </div>
+</section>
+
+<footer>
+  <a href="https://elitesystem.ai">An elitesystem.ai tool</a>
+  <a href="https://github.com/0xelitesystem/llm-timeout-budget">Source on GitHub</a>
+  <a href="https://0xelitesystem.github.io/">More tools</a>
+</footer>
+</main>
+
+<script>
+/* ============================================================
+   PURE CORE
+   Every function below takes plain values and returns a plain
+   object. None of them touch document or window.
+   ============================================================ */
+
+function escapeHtml(str){
+  var s = String(str === null || str === undefined ? "" : str);
+  var out = "";
+  for(var i = 0; i < s.length; i++){
+    var c = s.charAt(i);
+    if(c === "&"){ out += "&amp;"; }
+    else if(c === "<"){ out += "&lt;"; }
+    else if(c === ">"){ out += "&gt;"; }
+    else if(c === '"'){ out += "&quot;"; }
+    else if(c === "'"){ out += "&#39;"; }
+    else if(c === "`"){ out += "&#96;"; }
+    else { out += c; }
+  }
+  return out;
+}
+
+function unitFactor(unit){
+  var m = Object.create(null);
+  m["ms"] = 0.001;
+  m["s"] = 1;
+  m["min"] = 60;
+  m["h"] = 3600;
+  var key = String(unit);
+  return Object.prototype.hasOwnProperty.call(m, key) ? m[key] : null;
+}
+
+/* Strict numeric parse. parseFloat("60abc") is 60, which would silently accept a
+   typo as a real limit and report a verdict computed from a number the user never
+   entered. Anything that is not wholly a number is rejected. */
+function strictNumber(raw){
+  if(typeof raw === "number") return isFinite(raw) ? raw : null;
+  var s = String(raw === undefined || raw === null ? "" : raw).trim();
+  if(s === "") return null;
+  if(!/^[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?$/.test(s)) return null;
+  var n = Number(s);
+  return isFinite(n) ? n : null;
+}
+
+function toSeconds(value, unit){
+  var f = unitFactor(unit);
+  if(f === null) return null;
+  var n = strictNumber(value);
+  if(n === null) return null;
+  var out = n * f;
+  if(!isFinite(out)) return null;
+  return out;
+}
+
+function formatDuration(seconds){
+  if(seconds === null || seconds === undefined || !isFinite(seconds)) return "n/a";
+  var s = Number(seconds);
+  if(s < 0) return "invalid";
+  if(s < 1) return (Math.round(s * 1000) / 1000) + " s";
+  if(s < 90) return (Math.round(s * 10) / 10) + " s";
+  var mins = Math.floor(s / 60);
+  var rem = s - mins * 60;
+  if(mins < 60){
+    return mins + " min " + (Math.round(rem * 10) / 10) + " s";
+  }
+  var hrs = Math.floor(mins / 60);
+  var rm = mins - hrs * 60;
+  return hrs + " h " + rm + " min " + Math.round(rem) + " s";
+}
+
+function kindInfo(kind){
+  var m = Object.create(null);
+  m["idle"] = { label: "Idle", streamingHelps: true,
+    blurb: "Reset by every byte received. This is the only kind streaming defeats." };
+  m["total"] = { label: "Total", streamingHelps: false,
+    blurb: "Wall clock from the start of the request, reset by nothing. Streaming buys exactly zero here." };
+  m["cpu"] = { label: "Execution", streamingHelps: false,
+    blurb: "Counts compute or invocation time and ignores the idle-versus-total distinction. Streaming is irrelevant: the platform is still holding the slot open while your process waits, and the meter keeps running." };
+  var key = String(kind);
+  if(Object.prototype.hasOwnProperty.call(m, key)) return m[key];
+  return { label: "Unknown kind", streamingHelps: false, blurb: "Unrecognised kind." };
+}
+
+function layerTypeInfo(type){
+  var m = Object.create(null);
+  m["sdk"] = { label: "Application / SDK client timeout", kind: "total", accumulates: false,
+    symptom: "the SDK raises its own timeout error (APITimeoutError in the Python and Ruby SDKs, APIConnectionTimeoutError in the TypeScript SDK) and, unless you changed max_retries, immediately retries." };
+  m["httplib"] = { label: "HTTP library read timeout", kind: "idle", accumulates: false,
+    symptom: "the HTTP library raises a read timeout after that long without a byte, and the connection is torn down part way through the response." };
+  m["proxy"] = { label: "Reverse proxy / ingress read timeout", kind: "idle", accumulates: true,
+    symptom: "the proxy typically returns 504 Gateway Time-out and closes the upstream connection. If it had already begun forwarding bytes to the client, you get a truncated body instead of a status code." };
+  m["lb"] = { label: "Load balancer idle timeout", kind: "idle", accumulates: true,
+    symptom: "the load balancer closes the connection. The client usually sees a reset or a truncated body, and the balancer records a 5xx of its own that never reached your application logs." };
+  m["gateway"] = { label: "API gateway timeout", kind: "total", accumulates: true,
+    symptom: "the gateway returns its own timeout response regardless of what the backend is still doing. The backend often keeps running to completion, invisible and unbillable to the caller." };
+  m["serverless"] = { label: "Serverless / container execution ceiling", kind: "total", accumulates: true,
+    symptom: "the platform kills the execution and returns its own timeout error. Anything already flushed may be discarded, and the invocation is still billed." };
+  m["edge"] = { label: "Edge or CDN timeout", kind: "total", accumulates: true,
+    symptom: "the edge returns its own timeout page to the client while the origin request may still be running behind it." };
+  m["other"] = { label: "Other", kind: "total", accumulates: true,
+    symptom: "this layer aborts the request and the client sees whatever error this layer produces." };
+  var key = String(type);
+  if(Object.prototype.hasOwnProperty.call(m, key)) return m[key];
+  return m["other"];
+}
+
+function layerTypeKeys(){
+  return ["sdk", "httplib", "proxy", "lb", "gateway", "serverless", "edge", "other"];
+}
+
+function computeRequestModel(input){
+  var errors = [];
+  var notes = [];
+
+  function num(name, raw, opts){
+    var o = opts || {};
+    if(String(raw === undefined || raw === null ? "" : raw).trim() === ""){
+      errors.push(name + " is required.");
+      return null;
+    }
+    var n = strictNumber(raw);
+    if(n === null || !isFinite(n)){
+      errors.push(name + " must be a number.");
+      return null;
+    }
+    if(n < 0){
+      errors.push(name + " cannot be negative.");
+      return null;
+    }
+    if(o.positive === true && n <= 0){
+      errors.push(name + " must be greater than zero.");
+      return null;
+    }
+    return n;
+  }
+
+  var inputTokens = num("Input tokens", input.inputTokens);
+  var outputTokens = num("Output tokens", input.outputTokens);
+  var reasoningTokens = num("Reasoning tokens", input.reasoningTokens);
+  var ttft = num("Time to first token", input.ttft);
+  var tps = num("Output tokens per second", input.tps, { positive: true });
+  var allowance = num("Queue allowance", input.allowance);
+  var mTtft = num("Time-to-first-token multiplier", input.mTtft);
+  var mTps = num("Throughput multiplier", input.mTps, { positive: true });
+  var mAllow = num("Allowance multiplier", input.mAllow);
+
+  if(errors.length > 0){
+    return { ok: false, errors: errors, notes: notes };
+  }
+
+  var tpsScaled = tps * mTps;
+  if(!isFinite(tpsScaled) || tpsScaled <= 0){
+    errors.push("Scaled throughput is not a usable number. Check the tokens-per-second value and its multiplier.");
+    return { ok: false, errors: errors, notes: notes };
+  }
+
+  var ttftScaled = ttft * mTtft;
+  var allowanceScaled = allowance * mAllow;
+  var thinkingSeconds = reasoningTokens / tpsScaled;
+  if(!isFinite(ttftScaled) || !isFinite(allowanceScaled) || !isFinite(thinkingSeconds)){
+    errors.push("One of the scaled figures overflowed. Reduce the multipliers or the token counts.");
+    return { ok: false, errors: errors, notes: notes };
+  }
+
+  var mode = String(input.thinkMode || "inside");
+  var silent, streamTokens;
+  if(mode === "add"){
+    silent = ttftScaled + thinkingSeconds;
+    streamTokens = outputTokens;
+    notes.push("Thinking time is added on top of the observed time to first token: " +
+      reasoningTokens + " reasoning tokens at the scaled rate is " + formatDuration(thinkingSeconds) + ".");
+  } else if(mode === "stream"){
+    silent = ttftScaled;
+    streamTokens = outputTokens + reasoningTokens;
+    notes.push("Reasoning tokens are treated as streamed output, so they extend the streaming phase rather than the silent one.");
+  } else {
+    silent = ttftScaled;
+    streamTokens = outputTokens;
+    if(reasoningTokens > 0){
+      notes.push("The " + formatDuration(silent) + " silent window is the model thinking, not a stalled connection: " +
+        reasoningTokens + " reasoning tokens are produced in it and none of them are visible bytes. " +
+        "You told the tool that window already sits inside your measured time to first token, so it is not added " +
+        "a second time. For scale only: " + reasoningTokens + " tokens at the scaled visible-output rate would be " +
+        formatDuration(thinkingSeconds) + " - reasoning tokens are not necessarily produced at the visible-output " +
+        "rate, so treat those two numbers as independent rather than as a check on each other.");
+    }
+  }
+
+  var streamSeconds = streamTokens / tpsScaled;
+  if(!isFinite(streamSeconds)){
+    errors.push("The streaming duration is not a finite number. Check the token counts and throughput.");
+    return { ok: false, errors: errors, notes: notes };
+  }
+
+  var total = silent + streamSeconds + allowanceScaled;
+  if(!isFinite(total)){
+    errors.push("The modelled duration overflowed. Reduce the inputs.");
+    return { ok: false, errors: errors, notes: notes };
+  }
+  if(silent > total + 1e-9){
+    errors.push("The silent window is longer than the total duration, which cannot happen. Check the inputs.");
+    return { ok: false, errors: errors, notes: notes };
+  }
+  if(total > 60 * 60 * 24 * 30){
+    errors.push("The modelled duration is over thirty days. That is almost certainly a units mistake in one of the fields.");
+    return { ok: false, errors: errors, notes: notes };
+  }
+
+  if(outputTokens === 0 && reasoningTokens > 0){
+    notes.push("Output tokens are zero while reasoning tokens are not, so the whole request is silent from the caller's point of view. Every idle timeout in the path sees a connection with no data on it.");
+  }
+
+  return {
+    ok: true, errors: [], notes: notes,
+    inputTokens: inputTokens, outputTokens: outputTokens, reasoningTokens: reasoningTokens,
+    ttftScaled: ttftScaled, tpsScaled: tpsScaled, allowanceScaled: allowanceScaled,
+    thinkingSeconds: thinkingSeconds, thinkMode: mode,
+    silentSeconds: silent, streamSeconds: streamSeconds, totalSeconds: total,
+    streamTokens: streamTokens
+  };
+}
+
+function evaluateLayer(layer, model){
+  var info = layerTypeInfo(layer.type);
+  var kind = String(layer.kind || info.kind);
+  var ki = kindInfo(kind);
+  var raw = layer.value;
+  var rawStr = String(raw === undefined || raw === null ? "" : raw).trim();
+  var seconds = null;
+  var parseError = false;
+  var nonPositive = false;
+  var badUnit = false;
+
+  if(rawStr !== ""){
+    var n = strictNumber(rawStr);
+    if(n === null){
+      parseError = true;
+    } else if(n <= 0){
+      nonPositive = true;
+    } else {
+      seconds = toSeconds(n, layer.unit);
+      if(seconds === null){ badUnit = true; }
+      else if(!isFinite(seconds) || seconds <= 0){ seconds = null; badUnit = true; }
+    }
+  }
+
+  var out = {
+    id: layer.id,
+    name: layer.name && String(layer.name).trim() !== "" ? String(layer.name) : info.label,
+    type: String(layer.type),
+    typeLabel: info.label,
+    kind: kind,
+    kindLabel: ki.label,
+    kindBlurb: ki.blurb,
+    unit: String(layer.unit),
+    rawValue: rawStr,
+    seconds: seconds,
+    accumulates: layer.accumulates === true,
+    where: layer.where ? String(layer.where) : "",
+    symptom: info.symptom,
+    parseError: parseError,
+    unitWarning: false,
+    failsNonStreaming: false,
+    failsStreaming: false,
+    heartbeatFail: false,
+    verdict: "UNKNOWN",
+    failAtSeconds: null,
+    detail: ""
+  };
+
+  if(parseError){
+    out.detail = "\"" + rawStr + "\" is not a number, so this layer is treated as unknown. " +
+      "It is not rounded down to whatever digits it starts with: a verdict computed from a number " +
+      "you did not enter would be worse than no verdict.";
+    return out;
+  }
+  if(nonPositive){
+    out.detail = "A limit of " + rawStr + " is not a timeout anybody configured, so this reads UNKNOWN. " +
+      "Zero, or a negative number, is never safe.";
+    return out;
+  }
+  if(badUnit){
+    out.detail = "That value and unit do not resolve to a usable number of seconds, so this reads UNKNOWN.";
+    return out;
+  }
+  if(seconds === null){
+    out.detail = "No value entered. An unfilled field is never safe, so this reads UNKNOWN rather than PASS.";
+    return out;
+  }
+
+  out.failsNonStreaming = model.totalSeconds > seconds;
+  if(ki.streamingHelps){
+    out.failsStreaming = model.silentSeconds > seconds;
+    out.heartbeatFail = model.silentSeconds > seconds;
+  } else {
+    out.failsStreaming = model.totalSeconds > seconds;
+  }
+  out.failAtSeconds = seconds;
+
+  if(!out.failsNonStreaming && !out.failsStreaming){
+    out.verdict = "PASS";
+  } else if(out.failsNonStreaming && !out.failsStreaming){
+    out.verdict = "FAIL UNLESS STREAMING";
+  } else {
+    out.verdict = "FAIL";
+  }
+
+  if(String(layer.unit) === "ms"){
+    var rawNum = parseFloat(rawStr);
+    if(isFinite(rawNum) && rawNum > 0 && rawNum < 1000 && model.totalSeconds >= 60){
+      out.unitWarning = true;
+    }
+  }
+
+  return out;
+}
+
+function evaluateStack(layers, model, retryConfig){
+  var rows = [];
+  var i;
+  for(i = 0; i < layers.length; i++){
+    rows.push(evaluateLayer(layers[i], model));
+  }
+
+  var known = rows.filter(function(r){ return r.seconds !== null; });
+
+  function firstFailure(mode){
+    var best = null;
+    for(var j = 0; j < rows.length; j++){
+      var r = rows[j];
+      var fails = mode === "streaming" ? r.failsStreaming : r.failsNonStreaming;
+      if(!fails || r.seconds === null) continue;
+      if(best === null || r.seconds < best.seconds) best = r;
+    }
+    return best;
+  }
+
+  var hasTotalBound = false;
+  for(i = 0; i < known.length; i++){
+    if(known[i].kind === "total" || known[i].kind === "cpu"){ hasTotalBound = true; break; }
+  }
+
+  var impossible = known.length > 0;
+  for(i = 0; i < known.length; i++){
+    if(!known[i].failsStreaming){ impossible = false; break; }
+  }
+
+  var MAX_RETRIES = 200;
+  var retries = retryConfig && isFinite(retryConfig.retries) && retryConfig.retries >= 0
+    ? Math.floor(retryConfig.retries) : 0;
+  // A retry count in the millions is a typo, not a configuration. Draw a bounded
+  // number of attempts rather than a million bars, and say so instead of quietly
+  // reporting a smaller budget than the number that was typed.
+  var retriesClamped = false;
+  if(retries > MAX_RETRIES){ retries = MAX_RETRIES; retriesClamped = true; }
+  var backoffTotal = retryConfig && isFinite(retryConfig.backoffTotal) && retryConfig.backoffTotal >= 0
+    ? retryConfig.backoffTotal : 0;
+  var attempts = retries + 1;
+  var gap = attempts > 1 ? backoffTotal / (attempts - 1) : 0;
+  var budget = model.totalSeconds * attempts + backoffTotal;
+  if(!isFinite(budget)) budget = model.totalSeconds;
+
+  var crossings = [];
+  for(i = 0; i < rows.length; i++){
+    var row = rows[i];
+    row.retryCrossedAt = null;
+    if(row.seconds === null || !row.accumulates) continue;
+    if(row.kind === "idle") continue;
+    for(var n = 1; n <= attempts; n++){
+      var cum = n * model.totalSeconds + (n - 1) * gap;
+      if(cum > row.seconds){ row.retryCrossedAt = n; break; }
+    }
+    if(row.retryCrossedAt !== null){
+      crossings.push(row);
+    }
+  }
+  crossings.sort(function(a, b){ return a.seconds - b.seconds; });
+
+  var newlyBroken = crossings.filter(function(r){ return r.retryCrossedAt > 1; });
+
+  return {
+    rows: rows,
+    knownCount: known.length,
+    hasTotalBound: hasTotalBound,
+    impossible: impossible,
+    firstFailNonStreaming: firstFailure("nonstreaming"),
+    firstFailStreaming: firstFailure("streaming"),
+    retry: {
+      retries: retries, attempts: attempts, gap: gap,
+      retriesClamped: retriesClamped, maxRetries: MAX_RETRIES,
+      backoffTotal: backoffTotal, budgetSeconds: budget,
+      crossings: crossings, newlyBroken: newlyBroken
+    }
+  };
+}
+
+function sdkEffectiveTimeout(rule, maxTokens){
+  var mt = typeof maxTokens === "number" ? maxTokens : parseFloat(String(maxTokens));
+  var r = String(rule);
+  if(r === "none"){
+    return { ok: false, seconds: null, note: "" };
+  }
+  if(!isFinite(mt) || mt < 0){
+    return { ok: false, seconds: null, note: "Enter a max_tokens value to compute the rescaled default." };
+  }
+  if(r === "ts" || r === "javastream"){
+    var calc = (60 * 60 * mt) / 128000;
+    if(!isFinite(calc)) return { ok: false, seconds: null, note: "That max_tokens value overflows the formula." };
+    var secs = Math.min(60 * 60, Math.max(10 * 60, calc));
+    var which = r === "ts"
+      ? "TypeScript SDK, non-streaming request"
+      : "Java SDK, streaming request";
+    return {
+      ok: true, seconds: secs,
+      note: which + ": the documented formula is (60 * 60 * maxTokens) / 128000 seconds, floored at 10 minutes and " +
+        "capped at 60 minutes. With max_tokens = " + mt + " the effective default becomes " + formatDuration(secs) +
+        ", not whatever you assumed."
+    };
+  }
+  if(r === "javanon"){
+    return {
+      ok: false, seconds: null,
+      note: "Java SDK, non-streaming request: the docs state the dynamic timeout scales from a 30 second minimum up " +
+        "to a 10 minute maximum based on maxTokens, but do not publish the formula, so this tool does not guess it. " +
+        "Your effective default is somewhere in [30 s, 10 min]. Set the timeout explicitly and the question goes away."
+    };
+  }
+  return { ok: false, seconds: null, note: "" };
+}
+
+function effectiveDeadline(rows, model, mode, overrideId, overrideSeconds){
+  var best = Infinity;
+  for(var i = 0; i < rows.length; i++){
+    var r = rows[i];
+    var secs = r.seconds;
+    if(overrideId !== undefined && overrideId !== null && r.id === overrideId){
+      secs = overrideSeconds;
+    }
+    if(secs === null || secs === undefined || !isFinite(secs)) continue;
+    var fails = (mode === "streaming" && kindInfo(r.kind).streamingHelps)
+      ? (model.silentSeconds > secs)
+      : (model.totalSeconds > secs);
+    if(fails && secs < best) best = secs;
+  }
+  return best;
+}
+
+function rankRemediations(model, evaluation, extras){
+  var out = [];
+  var rows = evaluation.rows;
+  var i, r;
+
+  function runway(d){
+    if(!isFinite(d)) return model.totalSeconds;
+    return Math.min(d, model.totalSeconds);
+  }
+
+  var deadlineStream = effectiveDeadline(rows, model, "streaming");
+  var deadlineNon = effectiveDeadline(rows, model, "nonstreaming");
+  // The binding row is the shortest limit among the rows that actually FAIL under
+  // streaming, which is the same row the headline names. Identifying it by matching
+  // the deadline number instead picks the wrong row whenever a layer that streaming
+  // already saves happens to carry the same value as the layer that is really binding.
+  var bindingRow = evaluation.firstFailStreaming || null;
+  var bindingId = bindingRow ? bindingRow.id : null;
+
+  // 1. unit mismatch
+  for(i = 0; i < rows.length; i++){
+    r = rows[i];
+    if(r.unitWarning && r.seconds !== null){
+      var intendedSeconds = r.seconds * 1000;
+      var after = effectiveDeadline(rows, model, "streaming", r.id, intendedSeconds);
+      out.push({
+        addressesBinding: r.id === bindingId,
+        gainSeconds: Math.max(0, runway(after) - runway(deadlineStream)),
+        text: "Fix the unit on \"" + r.name + "\". It holds " + r.rawValue +
+          " in a milliseconds field, which is " + formatDuration(r.seconds) +
+          ". If the intent was " + r.rawValue + " seconds, the field needs " +
+          (parseFloat(r.rawValue) * 1000) + " ms, and the binding layer moves to " +
+          (isFinite(after) ? formatDuration(after) : "nothing in this stack") + ".",
+        why: "unit mismatch"
+      });
+    }
+  }
+
+  // 2. streaming
+  if(isFinite(deadlineNon) && (deadlineStream > deadlineNon)){
+    out.push({
+      addressesBinding: true,
+      gainSeconds: Math.max(0, runway(deadlineStream) - runway(deadlineNon)),
+      text: "Turn on streaming. The layer that kills a non-streaming call is an idle timeout of " +
+        formatDuration(deadlineNon) + ", and a streamed response resets it on every byte, which moves the " +
+        "binding layer to " + (isFinite(deadlineStream) ? formatDuration(deadlineStream) : "nothing in this stack") +
+        ". Streaming does this for idle timeouts only; it buys nothing against a total or execution limit.",
+      why: "streaming defeats idle timeouts"
+    });
+  }
+
+  // 3. raise the binding layer (skip if the unit fix already covers it)
+  if(bindingRow && !bindingRow.unitWarning){
+    var afterRaise = effectiveDeadline(rows, model, "streaming", bindingRow.id, Infinity);
+    var shortBy = kindInfo(bindingRow.kind).streamingHelps
+      ? Math.max(0, model.silentSeconds - bindingRow.seconds)
+      : Math.max(0, model.totalSeconds - bindingRow.seconds);
+    out.push({
+      addressesBinding: true,
+      gainSeconds: Math.max(0, runway(afterRaise) - runway(deadlineStream)),
+      text: "Raise \"" + bindingRow.name + "\" past what this request needs. It is " +
+        formatDuration(bindingRow.seconds) + " and it is short by " + formatDuration(shortBy) +
+        ". Doing that moves the binding layer to " +
+        (isFinite(afterRaise) ? formatDuration(afterRaise) : "nothing in this stack") + ".",
+      why: "the layer that kills first"
+    });
+  }
+
+  // 4. retry multiplication
+  if(evaluation.retry.attempts > 1 && evaluation.retry.newlyBroken.length > 0){
+    var nb = evaluation.retry.newlyBroken[0];
+    var retryBinds = !isFinite(deadlineStream);
+    out.push({
+      addressesBinding: retryBinds,
+      gainSeconds: retryBinds ? Math.max(0, Math.min(nb.seconds, evaluation.retry.budgetSeconds) - model.totalSeconds) : 0,
+      text: "Set the retry count to zero for this call, or move the retry loop outside \"" + nb.name +
+        "\". One attempt fits inside " + formatDuration(nb.seconds) + "; " + evaluation.retry.attempts +
+        " attempts need " + formatDuration(evaluation.retry.budgetSeconds) + ", crossing it during attempt " +
+        nb.retryCrossedAt + "." +
+        (retryBinds ? "" : " This changes nothing until the layer that kills the first attempt is fixed, so do it second."),
+      why: retryBinds ? "retry multiplication" : "blocked behind an earlier failure"
+    });
+  }
+
+  // 5. shorter response
+  if(model.streamSeconds > 0 && model.outputTokens > 0 && model.tpsScaled > 0){
+    var halfSaved = (model.outputTokens / 2) / model.tpsScaled;
+    if(isFinite(halfSaved) && halfSaved > 0){
+      var helpsHere = !bindingRow || !kindInfo(bindingRow.kind).streamingHelps;
+      out.push({
+        addressesBinding: false,
+        gainSeconds: halfSaved,
+        text: "Halve the output. At the modelled rate of " + (Math.round(model.tpsScaled * 10) / 10) +
+          " tokens per second, cutting " + Math.round(model.outputTokens / 2) + " output tokens saves " +
+          formatDuration(halfSaved) + ", and every 1000 tokens removed is worth " +
+          formatDuration(1000 / model.tpsScaled) + "." +
+          (helpsHere ? "" : " Note that this shortens the streaming phase, not the silent one, so it does not help " +
+            "against an idle timeout that is already failing on time to first token."),
+        why: "shorter response"
+      });
+    }
+  }
+
+  // 6. no total bound at all
+  if(!evaluation.hasTotalBound){
+    out.push({
+      addressesBinding: false,
+      gainSeconds: 0,
+      text: "Add a total wall-clock bound somewhere you control. Nothing in this stack bounds the whole request, " +
+        "so a hung call can pin a worker until somebody restarts the process. The gain is not measured in seconds; " +
+        "it is the difference between one failed request and an exhausted pool.",
+      why: "no total bound exists"
+    });
+  }
+
+  out.sort(function(a, b){
+    var ab = (b.addressesBinding ? 1 : 0) - (a.addressesBinding ? 1 : 0);
+    if(ab !== 0) return ab;
+    return b.gainSeconds - a.gainSeconds;
+  });
+  return out;
+}
+
+function buildVerdictText(model, evaluation, extras){
+  var lines = [];
+  var attempts = evaluation.retry.attempts;
+  var fNon = evaluation.firstFailNonStreaming;
+  var fStr = evaluation.firstFailStreaming;
+
+  lines.push("LLM TIMEOUT BUDGET - planning estimate, not a guarantee.");
+  lines.push("");
+  lines.push("Modelled worst case for a single attempt: " + formatDuration(model.totalSeconds) +
+    " (" + (Math.round(model.totalSeconds * 10) / 10) + " s).");
+  lines.push("  " + formatDuration(model.silentSeconds) + " waiting for the first byte, then " +
+    formatDuration(model.streamSeconds) + " streaming " + Math.round(model.streamTokens) +
+    " tokens at " + (Math.round(model.tpsScaled * 10) / 10) + " tok/s, plus " +
+    formatDuration(model.allowanceScaled) + " of queue allowance.");
+  lines.push("  These figures come from observations entered by hand. Nothing here was measured by the tool.");
+  lines.push("");
+
+  if(evaluation.knownCount === 0){
+    lines.push("No layer in the stack has a value, so there is no verdict. Fill in at least one timeout.");
+    return lines.join("\n");
+  }
+
+  if(fNon){
+    lines.push("Without streaming, the request dies at " + formatDuration(fNon.seconds) +
+      " in \"" + fNon.name + "\" (" + fNon.kindLabel.toLowerCase() + "). What you would see: " + fNon.symptom);
+  } else {
+    lines.push("Without streaming, no layer with a known value kills the request.");
+  }
+
+  if(fStr){
+    if(fNon && fStr.id === fNon.id){
+      lines.push("Streaming does not move the binding layer: \"" + fStr.name + "\" is a " +
+        fStr.kindLabel.toLowerCase() + " limit, and streaming buys nothing against it.");
+    } else {
+      lines.push("With streaming, the binding layer becomes \"" + fStr.name + "\" at " +
+        formatDuration(fStr.seconds) + " (" + fStr.kindLabel.toLowerCase() + "). What you would see: " + fStr.symptom);
+    }
+  } else {
+    lines.push("With streaming, no layer with a known value kills the request on a single attempt.");
+  }
+
+  var hb = evaluation.rows.filter(function(r){ return r.heartbeatFail; });
+  if(hb.length > 0){
+    var names = hb.map(function(r){ return "\"" + r.name + "\" (" + formatDuration(r.seconds) + ")"; }).join(", ");
+    lines.push("");
+    lines.push("Heartbeat check: the modelled silent window is " + formatDuration(model.silentSeconds) +
+      ", which is longer than " + names + ". Streaming alone does not save those rows, because the request dies " +
+      "before a single content byte arrives. Server-sent event comment frames keep an idle timer alive during that " +
+      "window; whether your provider emits them and whether every proxy in the path forwards them is for you to confirm.");
+  }
+
+  lines.push("");
+  if(attempts > 1){
+    lines.push("Retry-multiplied budget: " + attempts + " attempts x " + formatDuration(model.totalSeconds) +
+      (evaluation.retry.backoffTotal > 0 ? (" plus " + formatDuration(evaluation.retry.backoffTotal) + " of backoff") : "") +
+      " = " + formatDuration(evaluation.retry.budgetSeconds) + ".");
+    if(evaluation.retry.newlyBroken.length > 0){
+      var nb = evaluation.retry.newlyBroken[0];
+      lines.push("  \"" + nb.name + "\" at " + formatDuration(nb.seconds) +
+        " survives one attempt and is crossed during attempt " + nb.retryCrossedAt +
+        ". The last surviving layer is the one that gets you.");
+    } else if(evaluation.retry.crossings.length > 0){
+      lines.push("  The accumulating layers were already failing on the first attempt, so retries only make it worse.");
+    } else {
+      lines.push("  No accumulating layer with a known value is crossed by the retry budget.");
+    }
+  } else {
+    lines.push("Retries are set to zero, so the single-attempt duration is the whole budget.");
+  }
+
+  if(!evaluation.hasTotalBound){
+    lines.push("");
+    lines.push("Warning: this stack contains no total or execution bound at all. Nothing bounds the wall clock, " +
+      "so a hung request can pin a worker indefinitely.");
+  }
+  if(evaluation.impossible){
+    lines.push("");
+    lines.push("This request cannot complete on this stack under any configuration: every layer with a known value " +
+      "fails even with streaming enabled.");
+  }
+
+  var rem = rankRemediations(model, evaluation, extras);
+  if(rem.length > 0){
+    lines.push("");
+    lines.push("Single change with the most headroom: " + rem[0].text);
+  }
+
+  lines.push("");
+  lines.push("Generated by llm-timeout-budget. Arithmetic over hand-entered figures. It measures nothing.");
+  return lines.join("\n");
+}
+
+function buildMarkdown(model, evaluation, extras){
+  var L = [];
+  L.push("## LLM timeout budget");
+  L.push("");
+  L.push("Planning estimate over hand-entered figures. This tool measures nothing.");
+  L.push("");
+  L.push("| Quantity | Value |");
+  L.push("| --- | --- |");
+  L.push("| Silent window (to first byte) | " + formatDuration(model.silentSeconds) + " |");
+  L.push("| Streaming phase | " + formatDuration(model.streamSeconds) + " |");
+  L.push("| Queue allowance | " + formatDuration(model.allowanceScaled) + " |");
+  L.push("| **Modelled single attempt** | **" + formatDuration(model.totalSeconds) + "** |");
+  L.push("| Attempts (retries + 1) | " + evaluation.retry.attempts + " |");
+  L.push("| Retry-multiplied budget | " + formatDuration(evaluation.retry.budgetSeconds) + " |");
+  L.push("");
+  L.push("| Layer | Kind | Limit | Non-streaming | Streaming | Verdict |");
+  L.push("| --- | --- | --- | --- | --- | --- |");
+  for(var i = 0; i < evaluation.rows.length; i++){
+    var r = evaluation.rows[i];
+    var limit = r.seconds === null ? "(unset)" : (r.rawValue + " " + r.unit + " = " + formatDuration(r.seconds));
+    var ns = r.seconds === null ? "UNKNOWN" : (r.failsNonStreaming ? "FAIL" : "PASS");
+    var st = r.seconds === null ? "UNKNOWN" : (r.failsStreaming ? "FAIL" : "PASS");
+    L.push("| " + r.name.replace(/\|/g, "/") + " | " + r.kindLabel + " | " + limit + " | " + ns + " | " + st +
+      " | " + r.verdict + (r.heartbeatFail ? " (heartbeat)" : "") + " |");
+  }
+  L.push("");
+  var fStr = evaluation.firstFailStreaming;
+  var fNon = evaluation.firstFailNonStreaming;
+  L.push("**Binding layer without streaming:** " + (fNon ? (fNon.name + " at " + formatDuration(fNon.seconds)) : "none with a known value"));
+  L.push("");
+  L.push("**Binding layer with streaming:** " + (fStr ? (fStr.name + " at " + formatDuration(fStr.seconds)) : "none with a known value"));
+  L.push("");
+  var rem = rankRemediations(model, evaluation, extras);
+  if(rem.length > 0){
+    L.push("### What to change, ordered by effect");
+    L.push("");
+    for(var j = 0; j < rem.length; j++){
+      L.push((j + 1) + ". " + rem[j].text + (rem[j].gainSeconds > 0 ? (" _(worth about " + formatDuration(rem[j].gainSeconds) + ")_") : ""));
+    }
+  }
+  return L.join("\n");
+}
+
+/* ============================================================
+   UI
+   ============================================================ */
+(function(){
+  "use strict";
+
+  var $ = function(id){ return document.getElementById(id); };
+  var layers = [];
+  var seq = 1;
+
+  function el(tag, cls, text){
+    var n = document.createElement(tag);
+    if(cls) n.className = cls;
+    if(text !== undefined && text !== null) n.textContent = String(text);
+    return n;
+  }
+
+  /* ---- theme ---- */
+  function currentTheme(){
+    var t = document.documentElement.getAttribute("data-theme");
+    if(t === "light" || t === "dark") return t;
+    if(window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches) return "light";
+    return "dark";
+  }
+  $("themeBtn").addEventListener("click", function(){
+    var next = currentTheme() === "dark" ? "light" : "dark";
+    document.documentElement.setAttribute("data-theme", next);
+    try { localStorage.setItem("ltb-theme", next); } catch(e){}
+    render();
+  });
+
+  /* ---- scenario presets ---- */
+  var SCENARIOS = Object.create(null);
+  SCENARIOS["p50"] = { ttft: 1, tps: 1, allow: 1 };
+  SCENARIOS["p95"] = { ttft: 1.5, tps: 0.85, allow: 1.6 };
+  SCENARIOS["worst"] = { ttft: 2, tps: 0.75, allow: 2.5 };
+
+  var suppressScenario = false;
+  $("scenario").addEventListener("change", function(){
+    var key = $("scenario").value;
+    if(!Object.prototype.hasOwnProperty.call(SCENARIOS, key)) { render(); return; }
+    var p = SCENARIOS[key];
+    suppressScenario = true;
+    $("mTtft").value = p.ttft;
+    $("mTps").value = p.tps;
+    $("mAllow").value = p.allow;
+    suppressScenario = false;
+    render();
+  });
+  ["mTtft", "mTps", "mAllow"].forEach(function(id){
+    $(id).addEventListener("input", function(){
+      if(!suppressScenario) $("scenario").value = "custom";
+      render();
+    });
+  });
+
+  /* ---- default and sample stacks ---- */
+  function makeLayer(o){
+    var info = layerTypeInfo(o.type);
+    return {
+      id: "L" + (seq++),
+      type: o.type,
+      name: o.name !== undefined ? o.name : info.label,
+      kind: o.kind !== undefined ? o.kind : info.kind,
+      value: o.value !== undefined ? o.value : "",
+      unit: o.unit !== undefined ? o.unit : "s",
+      accumulates: o.accumulates !== undefined ? o.accumulates : info.accumulates,
+      where: o.where !== undefined ? o.where : ""
+    };
+  }
+
+  function defaultStack(){
+    return [
+      makeLayer({ type: "sdk", value: "", unit: "ms",
+        where: "Where is your client timeout set? Remember the unit." }),
+      makeLayer({ type: "httplib", value: "", unit: "s",
+        where: "The read timeout on requests or httpx. It resets on every byte." }),
+      makeLayer({ type: "proxy", value: 60, unit: "s",
+        where: "nginx proxy_read_timeout. 60s is a commonly seen default - confirm in your own config." }),
+      makeLayer({ type: "lb", value: 60, unit: "s",
+        where: "AWS ALB idle_timeout.timeout_seconds. 60 seconds is a commonly seen default - confirm in your own config." }),
+      makeLayer({ type: "gateway", value: "", unit: "s",
+        where: "Your API gateway's integration or route timeout." }),
+      makeLayer({ type: "serverless", value: "", unit: "min",
+        where: "The function or container execution ceiling on your platform." }),
+      makeLayer({ type: "edge", value: "", unit: "s",
+        where: "Edge or CDN layer, if you have one in front. Defaulted to total, because edge vendors rarely document whether their read timer resets on bytes - switch it to idle only once you have confirmed yours does." })
+    ];
+  }
+
+  function loadSample(){
+    layers = [
+      makeLayer({ type: "sdk", name: "Anthropic TypeScript client timeout",
+        kind: "total", value: 600, unit: "ms", accumulates: false,
+        where: "new Anthropic({ timeout: 600 }) in src/llm/client.ts - the intent was clearly 600 seconds" }),
+      makeLayer({ type: "proxy", name: "nginx in front of the service",
+        kind: "idle", value: 60, unit: "s", accumulates: true,
+        where: "proxy_read_timeout in the /api server block - commonly seen default, confirm in your own config" }),
+      makeLayer({ type: "serverless", name: "Serverless execution ceiling",
+        kind: "total", value: 15, unit: "min", accumulates: true,
+        where: "Timeout on the inference function - 900 s is the platform quota, confirm your own setting" })
+    ];
+    $("inTok").value = 45000;
+    $("outTok").value = 8000;
+    $("thinkTok").value = 12000;
+    $("maxTok").value = 16000;
+    $("ttft").value = 95;
+    $("tps").value = 22;
+    $("allow").value = 20;
+    $("thinkMode").value = "inside";
+    $("scenario").value = "worst";
+    $("mTtft").value = SCENARIOS["worst"].ttft;
+    $("mTps").value = SCENARIOS["worst"].tps;
+    $("mAllow").value = SCENARIOS["worst"].allow;
+    $("retries").value = 2;
+    $("backoff").value = 0;
+    $("rescale").value = "none";
+    renderStack();
+    render();
+  }
+
+  /* ---- stack table rendering ---- */
+  function renderStack(){
+    var table = $("stackTable");
+    var old = table.querySelectorAll("tbody");
+    for(var k = 0; k < old.length; k++) table.removeChild(old[k]);
+
+    if(layers.length === 0){
+      $("stackWrap").style.display = "none";
+      $("stackEmpty").innerHTML = "";
+      var e = el("div", "empty");
+      e.appendChild(el("div", null, "No layers yet."));
+      e.appendChild(el("div", null,
+        "Add a row for every hop between your process and the provider: your SDK client timeout, the HTTP library read timeout, any reverse proxy or ingress, the load balancer, the API gateway, the serverless or container ceiling, and the edge layer if you have one."));
+      var b = el("button", "btn small", "Load sample");
+      b.type = "button";
+      b.addEventListener("click", loadSample);
+      var wrap = el("div"); wrap.style.marginTop = "10px"; wrap.appendChild(b);
+      e.appendChild(wrap);
+      $("stackEmpty").appendChild(e);
+      return;
+    }
+    $("stackWrap").style.display = "";
+    $("stackEmpty").innerHTML = "";
+
+    layers.forEach(function(layer, idx){
+      var tb = el("tbody", "layer");
+      var tr = el("tr");
+
+      // Layer cell: type select + name input
+      var tdL = el("td");
+      var sel = el("select");
+      layerTypeKeys().forEach(function(key){
+        var o = el("option", null, layerTypeInfo(key).label);
+        o.value = key;
+        if(key === layer.type) o.selected = true;
+        sel.appendChild(o);
+      });
+      sel.setAttribute("aria-label", "Layer type for row " + (idx + 1));
+      sel.addEventListener("change", function(){
+        layer.type = sel.value;
+        var info = layerTypeInfo(sel.value);
+        layer.name = info.label;
+        layer.kind = info.kind;
+        layer.accumulates = info.accumulates;
+        renderStack(); render();
+      });
+      var nm = el("input");
+      nm.type = "text"; nm.value = layer.name; nm.style.marginTop = "5px";
+      nm.setAttribute("aria-label", "Layer name for row " + (idx + 1));
+      nm.addEventListener("input", function(){ layer.name = nm.value; render(); });
+      tdL.appendChild(sel); tdL.appendChild(nm);
+      tr.appendChild(tdL);
+
+      // Kind
+      var tdK = el("td", "narrow");
+      var ks = el("select");
+      [["idle", "Idle"], ["total", "Total"], ["cpu", "Execution"]].forEach(function(pair){
+        var o = el("option", null, pair[1]);
+        o.value = pair[0];
+        if(pair[0] === layer.kind) o.selected = true;
+        ks.appendChild(o);
+      });
+      ks.setAttribute("aria-label", "Timeout kind for row " + (idx + 1));
+      ks.addEventListener("change", function(){ layer.kind = ks.value; render(); });
+      tdK.appendChild(ks);
+      tr.appendChild(tdK);
+
+      // Value
+      var tdV = el("td", "narrow");
+      var vi = el("input");
+      vi.type = "text"; vi.inputMode = "decimal"; vi.value = layer.value === "" ? "" : String(layer.value);
+      vi.style.width = "88px";
+      vi.placeholder = "blank";
+      vi.setAttribute("aria-label", "Timeout value for row " + (idx + 1));
+      vi.addEventListener("input", function(){ layer.value = vi.value; render(); });
+      tdV.appendChild(vi);
+      tr.appendChild(tdV);
+
+      // Unit
+      var tdU = el("td", "narrow");
+      var us = el("select");
+      [["ms", "ms"], ["s", "s"], ["min", "min"], ["h", "h"]].forEach(function(pair){
+        var o = el("option", null, pair[1]);
+        o.value = pair[0];
+        if(pair[0] === layer.unit) o.selected = true;
+        us.appendChild(o);
+      });
+      us.style.width = "76px";
+      us.setAttribute("aria-label", "Unit for row " + (idx + 1));
+      us.addEventListener("change", function(){ layer.unit = us.value; render(); });
+      tdU.appendChild(us);
+      tr.appendChild(tdU);
+
+      // Retries stack
+      var tdA = el("td", "narrow");
+      var cb = el("input");
+      cb.type = "checkbox"; cb.checked = layer.accumulates === true;
+      cb.style.width = "auto";
+      cb.setAttribute("aria-label", "Retries accumulate at this layer, row " + (idx + 1));
+      cb.addEventListener("change", function(){ layer.accumulates = cb.checked; render(); });
+      tdA.appendChild(cb);
+      tr.appendChild(tdA);
+
+      // Verdict placeholder
+      var tdVer = el("td", "narrow");
+      tdVer.id = "verdict-" + layer.id;
+      tr.appendChild(tdVer);
+
+      // Actions
+      var tdX = el("td", "narrow");
+      var box = el("div", "rowbtns");
+      var up = el("button", "btn small ghost", "Up"); up.type = "button";
+      up.setAttribute("aria-label", "Move row " + (idx + 1) + " up");
+      up.addEventListener("click", function(){
+        if(idx === 0) return;
+        var t = layers[idx - 1]; layers[idx - 1] = layers[idx]; layers[idx] = t;
+        renderStack(); render();
+      });
+      var dn = el("button", "btn small ghost", "Dn"); dn.type = "button";
+      dn.setAttribute("aria-label", "Move row " + (idx + 1) + " down");
+      dn.addEventListener("click", function(){
+        if(idx >= layers.length - 1) return;
+        var t = layers[idx + 1]; layers[idx + 1] = layers[idx]; layers[idx] = t;
+        renderStack(); render();
+      });
+      var rm = el("button", "btn small ghost", "Remove"); rm.type = "button";
+      rm.setAttribute("aria-label", "Remove row " + (idx + 1));
+      rm.addEventListener("click", function(){
+        layers = layers.filter(function(x){ return x.id !== layer.id; });
+        renderStack(); render();
+      });
+      box.appendChild(up); box.appendChild(dn); box.appendChild(rm);
+      tdX.appendChild(box);
+      tr.appendChild(tdX);
+
+      tb.appendChild(tr);
+
+      // detail row
+      var tr2 = el("tr", "detail");
+      var td2 = el("td");
+      td2.colSpan = 7;
+      var wi = el("input");
+      wi.type = "text"; wi.value = layer.where;
+      wi.placeholder = "Where this is configured (file, directive, console setting)";
+      wi.setAttribute("aria-label", "Where row " + (idx + 1) + " is configured");
+      wi.addEventListener("input", function(){ layer.where = wi.value; });
+      td2.appendChild(wi);
+      var d = el("div"); d.id = "detail-" + layer.id; d.style.marginTop = "5px";
+      td2.appendChild(d);
+      tr2.appendChild(td2);
+      tb.appendChild(tr2);
+
+      table.appendChild(tb);
+    });
+  }
+
+  /* ---- timeline drawing ---- */
+  function drawTimeline1(host, model, evaluation){
+    host.innerHTML = "";
+    var total = model.totalSeconds;
+    if(!(total > 0)) return;
+
+    var bar = el("div", "tlbar");
+    function seg(cls, secs, label){
+      var pct = (secs / total) * 100;
+      if(!(pct > 0)) return;
+      var s = el("div", "seg " + cls);
+      s.style.width = pct + "%";
+      s.title = label + ": " + formatDuration(secs);
+      if(pct > 14) s.textContent = label;
+      bar.appendChild(s);
+    }
+    seg("silent", model.silentSeconds, "waiting for first byte");
+    seg("stream", model.streamSeconds, "streaming");
+    seg("allow", model.allowanceScaled, "allowance");
+    host.appendChild(bar);
+
+    var ticks = el("div", "tlticks");
+    var placed = [];
+    evaluation.rows.forEach(function(r){
+      if(r.seconds === null || r.seconds > total) return;
+      var pct = (r.seconds / total) * 100;
+      var t = el("div", "tick" + (r.failsStreaming || r.failsNonStreaming ? "" : " pass"));
+      t.style.left = pct + "%";
+      var offset = 0;
+      placed.forEach(function(p){ if(Math.abs(p - pct) < 9) offset += 15; });
+      placed.push(pct);
+      t.style.top = offset + "px";
+      t.appendChild(el("i"));
+      t.appendChild(el("span", null, r.name + " " + formatDuration(r.seconds)));
+      ticks.appendChild(t);
+    });
+    host.appendChild(ticks);
+
+    var key = el("div", "tlkey");
+    function k(color, text){
+      var d = el("div");
+      var i = el("i"); i.style.background = color;
+      d.appendChild(i); d.appendChild(document.createTextNode(text));
+      key.appendChild(d);
+    }
+    k("var(--warn)", "waiting for first byte " + formatDuration(model.silentSeconds));
+    k("var(--acc2)", "streaming " + formatDuration(model.streamSeconds));
+    k("var(--unk)", "queue allowance " + formatDuration(model.allowanceScaled));
+    host.appendChild(key);
+
+    var over = evaluation.rows.filter(function(r){ return r.seconds !== null && r.seconds > total; });
+    if(over.length > 0){
+      var note = el("div", "ph");
+      note.style.marginTop = "4px";
+      note.textContent = "Off the right edge (limits longer than the modelled request): " +
+        over.map(function(r){ return r.name + " " + formatDuration(r.seconds); }).join("; ");
+      host.appendChild(note);
+    }
+  }
+
+  function drawTimeline2(host, model, evaluation){
+    host.innerHTML = "";
+    var rt = evaluation.retry;
+    var accum = evaluation.rows.filter(function(r){
+      return r.seconds !== null && r.accumulates && r.kind !== "idle";
+    });
+    var maxLimit = 0;
+    accum.forEach(function(r){ if(r.seconds > maxLimit) maxLimit = r.seconds; });
+    var scale = Math.max(rt.budgetSeconds, maxLimit);
+    if(!(scale > 0)) return;
+
+    var bar = el("div", "tlbar");
+    for(var n = 0; n < rt.attempts; n++){
+      var a = el("div", "seg " + (n % 2 === 0 ? "stream" : "silent"));
+      a.style.width = ((model.totalSeconds / scale) * 100) + "%";
+      a.title = "attempt " + (n + 1) + ": " + formatDuration(model.totalSeconds);
+      if((model.totalSeconds / scale) * 100 > 12) a.textContent = "attempt " + (n + 1);
+      bar.appendChild(a);
+      if(n < rt.attempts - 1 && rt.gap > 0){
+        var g = el("div", "seg allow");
+        g.style.width = ((rt.gap / scale) * 100) + "%";
+        g.title = "backoff: " + formatDuration(rt.gap);
+        bar.appendChild(g);
+      }
+    }
+    host.appendChild(bar);
+
+    var ticks = el("div", "tlticks");
+    var placed = [];
+    accum.forEach(function(r){
+      var pct = (r.seconds / scale) * 100;
+      if(pct > 100) return;
+      var t = el("div", "tick" + (rt.budgetSeconds > r.seconds ? "" : " pass"));
+      t.style.left = pct + "%";
+      var offset = 0;
+      placed.forEach(function(p){ if(Math.abs(p - pct) < 9) offset += 15; });
+      placed.push(pct);
+      t.style.top = offset + "px";
+      t.appendChild(el("i"));
+      var lbl = r.name + " " + formatDuration(r.seconds);
+      if(r.retryCrossedAt !== null) lbl += " (crossed in attempt " + r.retryCrossedAt + ")";
+      t.appendChild(el("span", null, lbl));
+      ticks.appendChild(t);
+    });
+    host.appendChild(ticks);
+
+    var key = el("div", "tlkey");
+    key.appendChild(el("div", null, rt.attempts + " attempts, total budget " + formatDuration(rt.budgetSeconds) +
+      (rt.backoffTotal > 0 ? (" including " + formatDuration(rt.backoffTotal) + " of backoff") : " with no backoff entered")));
+    host.appendChild(key);
+
+    if(accum.length === 0){
+      var e = el("div", "ph");
+      e.style.marginTop = "6px";
+      e.textContent = "No layer in the stack both accumulates across retries and has a known non-idle limit, so there is nothing to cross. Tick \"retries stack\" on the layers that sit outside your retry loop.";
+      host.appendChild(e);
+    }
+  }
+
+  /* ---- copy helper ---- */
+  function wireCopy(btn, getText){
+    btn.addEventListener("click", function(){
+      var text = getText();
+      var label = btn.getAttribute("data-label") || btn.textContent;
+      btn.setAttribute("data-label", label);
+      function done(ok){
+        btn.textContent = ok ? "Copied" : "Copy failed";
+        setTimeout(function(){ btn.textContent = label; }, 1500);
+      }
+      if(navigator.clipboard && navigator.clipboard.writeText){
+        navigator.clipboard.writeText(text).then(function(){ done(true); }, function(){ fallback(); });
+      } else { fallback(); }
+      function fallback(){
+        try{
+          var ta = document.createElement("textarea");
+          ta.value = text;
+          ta.setAttribute("readonly", "readonly");
+          ta.style.position = "fixed"; ta.style.top = "-1000px";
+          document.body.appendChild(ta);
+          ta.select();
+          var ok = document.execCommand("copy");
+          document.body.removeChild(ta);
+          done(ok);
+        }catch(e){ done(false); }
+      }
+    });
+  }
+
+  /* ---- main render ---- */
+  function render(){
+    // unit converter
+    var uv = parseFloat($("ucVal").value);
+    var uu = $("ucUnit").value;
+    var us = toSeconds(uv, uu);
+    $("ucOut").textContent = (us === null)
+      ? "enter a number"
+      : ((Math.round(us * 1000 * 1000) / 1000) + " ms / " + (Math.round(us * 1000) / 1000) + " s / " +
+         (Math.round((us / 60) * 1000) / 1000) + " min");
+
+    var input = {
+      inputTokens: $("inTok").value,
+      outputTokens: $("outTok").value,
+      reasoningTokens: $("thinkTok").value,
+      ttft: $("ttft").value,
+      tps: $("tps").value,
+      allowance: $("allow").value,
+      mTtft: $("mTtft").value,
+      mTps: $("mTps").value,
+      mAllow: $("mAllow").value,
+      thinkMode: $("thinkMode").value
+    };
+    var model = computeRequestModel(input);
+
+    var errBox = $("modelErrors");
+    errBox.innerHTML = "";
+    if(!model.ok){
+      var nb = el("div", "note bad");
+      nb.appendChild(el("strong", null, "Cannot compute a duration:"));
+      var ul = el("ul");
+      ul.style.margin = "6px 0 0"; ul.style.paddingLeft = "20px";
+      model.errors.forEach(function(m){ ul.appendChild(el("li", null, m)); });
+      nb.appendChild(ul);
+      errBox.appendChild(nb);
+      $("calcBox").innerHTML = "";
+      $("timeline1").innerHTML = "";
+      $("timeline2").innerHTML = "";
+      $("headlineBox").innerHTML = "";
+      $("stackNotes").innerHTML = "";
+      $("retryNotes").innerHTML = "";
+      $("verdictOut").textContent = "Fix the inputs above to get a verdict.";
+      $("mdOut").textContent = "";
+      $("changesOut").innerHTML = "";
+      layers.forEach(function(l){
+        var v = $("verdict-" + l.id); if(v) v.innerHTML = "";
+        var d = $("detail-" + l.id); if(d) d.innerHTML = "";
+      });
+      return;
+    }
+
+    // rescale
+    var rescale = sdkEffectiveTimeout($("rescale").value, parseFloat($("maxTok").value));
+    var rbox = $("rescaleOut");
+    rbox.innerHTML = "";
+    if(rescale.note){
+      var rn = el("div", "note warn");
+      rn.textContent = rescale.note;
+      rbox.appendChild(rn);
+    }
+
+    // arithmetic breakdown
+    var cb = $("calcBox");
+    cb.innerHTML = "";
+    function line(lbl, val, cls){
+      var d = el("div", "line" + (cls ? (" " + cls) : ""));
+      d.appendChild(el("span", "lbl", lbl));
+      d.appendChild(el("span", null, val));
+      cb.appendChild(d);
+    }
+    line("time to first token " + $("ttft").value + " s x " + $("mTtft").value,
+      formatDuration(model.ttftScaled));
+    if(model.thinkMode === "add"){
+      line("+ thinking " + model.reasoningTokens + " tok / " + (Math.round(model.tpsScaled * 100) / 100) + " tok/s",
+        formatDuration(model.thinkingSeconds));
+    }
+    line("+ streaming " + Math.round(model.streamTokens) + " tok / " + (Math.round(model.tpsScaled * 100) / 100) + " tok/s",
+      formatDuration(model.streamSeconds));
+    line("+ queue allowance " + $("allow").value + " s x " + $("mAllow").value,
+      formatDuration(model.allowanceScaled));
+    line("= modelled duration (single attempt)", formatDuration(model.totalSeconds), "total");
+    model.notes.forEach(function(n){
+      var d = el("div", "ph");
+      d.style.marginTop = "8px"; d.style.fontStyle = "normal";
+      d.textContent = n;
+      cb.appendChild(d);
+    });
+    var disc = el("div", "ph");
+    disc.style.marginTop = "8px";
+    disc.textContent = "Estimate. Every figure above derives from numbers you typed in; nothing was measured.";
+    cb.appendChild(disc);
+
+    // evaluate
+    var evaluation = evaluateStack(layers, model, {
+      retries: parseFloat($("retries").value),
+      backoffTotal: parseFloat($("backoff").value)
+    });
+
+    // per row verdicts
+    evaluation.rows.forEach(function(r){
+      var vHost = $("verdict-" + r.id);
+      var dHost = $("detail-" + r.id);
+      if(vHost){
+        vHost.innerHTML = "";
+        var cls = r.verdict === "PASS" ? "PASS"
+          : r.verdict === "UNKNOWN" ? "UNKNOWN"
+          : r.verdict === "FAIL UNLESS STREAMING" ? "STREAM" : "FAIL";
+        var span = el("span", "v " + cls, r.verdict === "FAIL UNLESS STREAMING" ? "FAIL UNLESS STREAMING" : r.verdict);
+        vHost.appendChild(span);
+      }
+      if(dHost){
+        dHost.innerHTML = "";
+        var bits = [];
+        bits.push(r.kindLabel + ": " + r.kindBlurb);
+        if(r.seconds !== null){
+          bits.push("Limit " + formatDuration(r.seconds) + ". Non-streaming " +
+            (r.failsNonStreaming ? "FAIL" : "PASS") + ", streaming " + (r.failsStreaming ? "FAIL" : "PASS") + ".");
+        } else {
+          bits.push(r.detail);
+        }
+        if(r.failsNonStreaming || r.failsStreaming){
+          bits.push("Symptom: " + r.symptom);
+        }
+        if(r.heartbeatFail){
+          bits.push("Heartbeat: the silent window of " + formatDuration(model.silentSeconds) +
+            " exceeds this idle limit, so the request dies before a single content byte arrives even with streaming on. " +
+            "Server-sent event comment frames keep an idle timer alive during that window; confirm your provider emits them " +
+            "and that every proxy in the path forwards them.");
+        }
+        if(r.kind === "cpu"){
+          bits.push("Streaming does not help here even though bytes are flowing: the platform is still holding your execution slot open for the whole call, and its meter does not care whether data is moving.");
+        }
+        if(r.retryCrossedAt !== null && r.retryCrossedAt !== undefined){
+          bits.push("Retries: crossed during attempt " + r.retryCrossedAt + " of " + evaluation.retry.attempts + ".");
+        }
+        var p = el("div", null, bits.join(" "));
+        dHost.appendChild(p);
+        if(r.unitWarning){
+          var w = el("div", "note warn");
+          w.style.margin = "6px 0 0";
+          w.textContent = "Unit check: " + r.rawValue + " in a milliseconds field is " + formatDuration(r.seconds) +
+            ", while the modelled request runs for " + formatDuration(model.totalSeconds) +
+            ". That reads like a seconds value in a milliseconds field. If you meant " + r.rawValue +
+            " seconds, this field needs " + (parseFloat(r.rawValue) * 1000) + " ms.";
+          dHost.appendChild(w);
+        }
+      }
+    });
+
+    // headline
+    var hb = $("headlineBox");
+    hb.innerHTML = "";
+    if(evaluation.knownCount === 0){
+      var hn = el("div", "note");
+      hn.textContent = "No layer has a value yet, so there is no verdict. Every row reads UNKNOWN, which is not the same as safe.";
+      hb.appendChild(hn);
+    } else {
+      var box = el("div", "headline");
+      box.appendChild(el("h3", null, "Headline"));
+      var fNon = evaluation.firstFailNonStreaming;
+      var fStr = evaluation.firstFailStreaming;
+      if(fNon){
+        box.appendChild(el("p", null,
+          "Non-streaming: dies at " + formatDuration(fNon.seconds) + " in \"" + fNon.name + "\" (" +
+          fNon.kindLabel.toLowerCase() + "). " + fNon.symptom));
+      } else {
+        box.appendChild(el("p", null, "Non-streaming: no layer with a known value kills this request."));
+      }
+      if(fStr){
+        box.appendChild(el("p", null,
+          "Streaming: dies at " + formatDuration(fStr.seconds) + " in \"" + fStr.name + "\" (" +
+          fStr.kindLabel.toLowerCase() + "). " + fStr.symptom));
+      } else {
+        box.appendChild(el("p", null, "Streaming: no layer with a known value kills this request on a single attempt."));
+      }
+      box.appendChild(el("p", null, "This is a planning estimate over figures you entered, not a guarantee about your stack."));
+      hb.appendChild(box);
+    }
+
+    // stack notes
+    var sn = $("stackNotes");
+    sn.innerHTML = "";
+    if(evaluation.knownCount > 0 && !evaluation.hasTotalBound){
+      var n1 = el("div", "note bad");
+      n1.appendChild(el("strong", null, "No total bound anywhere in this stack. "));
+      n1.appendChild(document.createTextNode(
+        "Every known row is an idle timeout, which means nothing bounds the wall clock of the request. " +
+        "A connection that keeps dribbling bytes can hold a worker open indefinitely, and the pool runs out before " +
+        "anything times out. Add a total or execution ceiling you control."));
+      sn.appendChild(n1);
+    }
+    if(evaluation.impossible){
+      var n2 = el("div", "note bad");
+      n2.appendChild(el("strong", null, "This request cannot complete on this stack under any configuration. "));
+      n2.appendChild(document.createTextNode(
+        "Every layer with a known value fails even with streaming enabled. To make it possible, at least one of these has to change: " +
+        "raise the shortest limit above " + formatDuration(model.totalSeconds) + "; " +
+        "reduce the modelled duration below " + formatDuration(evaluation.firstFailStreaming ? evaluation.firstFailStreaming.seconds : model.totalSeconds) + "; " +
+        "or move the call off this path entirely, for example onto a queue with a callback instead of a synchronous request."));
+      sn.appendChild(n2);
+    }
+    var hbFails = evaluation.rows.filter(function(r){ return r.heartbeatFail; });
+    if(hbFails.length > 0){
+      var n3 = el("div", "note warn");
+      n3.appendChild(el("strong", null, "Heartbeat sub-check failed on " + hbFails.length +
+        " idle " + (hbFails.length === 1 ? "row" : "rows") + ". "));
+      n3.appendChild(document.createTextNode(
+        "The modelled time to first token alone (" + formatDuration(model.silentSeconds) +
+        ") is longer than those idle timeouts, so the request dies before a single content byte arrives even with " +
+        "streaming enabled. Server-sent event comment frames keep an idle timer alive during that silent thinking " +
+        "window. Whether your provider emits them, and whether every proxy in the path forwards them rather than " +
+        "buffering them away, is something you have to confirm for your own stack."));
+      sn.appendChild(n3);
+    }
+
+    // retry timeline
+    drawTimeline1($("timeline1"), model, evaluation);
+    drawTimeline2($("timeline2"), model, evaluation);
+
+    var rn2 = $("retryNotes");
+    rn2.innerHTML = "";
+    if(evaluation.retry.retriesClamped){
+      var dc = el("div", "note warn");
+      dc.textContent = "Retry count capped at " + evaluation.retry.maxRetries +
+        " for this calculation. You entered a larger number; everything above is computed for " +
+        evaluation.retry.attempts + " attempts, not for the value you typed. If you really do retry " +
+        "more than " + evaluation.retry.maxRetries + " times, the binding layer is not your problem.";
+      rn2.appendChild(dc);
+    }
+    if(evaluation.retry.newlyBroken.length > 0){
+      var nb2 = evaluation.retry.newlyBroken[0];
+      var d1 = el("div", "note bad");
+      d1.appendChild(el("strong", null, "Retry multiplication breaks a layer that passed on its own. "));
+      d1.appendChild(document.createTextNode(
+        "\"" + nb2.name + "\" is " + formatDuration(nb2.seconds) + " and a single attempt of " +
+        formatDuration(model.totalSeconds) + " fits inside it. With " + evaluation.retry.attempts +
+        " attempts the budget reaches " + formatDuration(evaluation.retry.budgetSeconds) +
+        " and the ceiling is crossed during attempt " + nb2.retryCrossedAt +
+        ". The last surviving layer is the one that gets you."));
+      rn2.appendChild(d1);
+    }
+    if(evaluation.retry.attempts === 1){
+      var d2 = el("div", "note");
+      d2.textContent = "Retries are set to zero. Note that the documented default in every current Anthropic SDK is 2, giving 3 attempts, and timeouts are themselves retried.";
+      rn2.appendChild(d2);
+    }
+
+    // outputs
+    var verdict = buildVerdictText(model, evaluation, {});
+    var md = buildMarkdown(model, evaluation, {});
+    $("verdictOut").textContent = verdict;
+    $("mdOut").textContent = md;
+
+    var co = $("changesOut");
+    co.innerHTML = "";
+    var rem = rankRemediations(model, evaluation, {});
+    if(rem.length === 0){
+      var ce = el("div", "note ok");
+      ce.textContent = "Nothing to change from this model: no layer with a known value blocks the request.";
+      co.appendChild(ce);
+    } else {
+      var ol = el("ol", "changes");
+      rem.forEach(function(item){
+        var li = el("li");
+        li.appendChild(document.createTextNode(item.text + " "));
+        if(item.gainSeconds > 0){
+          li.appendChild(el("span", "gain", "[worth about " + formatDuration(item.gainSeconds) + "]"));
+        } else {
+          li.appendChild(el("span", "gain", "[" + item.why + "]"));
+        }
+        ol.appendChild(li);
+      });
+      co.appendChild(ol);
+    }
+
+    window.__ltb = { verdict: verdict, md: md };
+  }
+
+  /* ---- wiring ---- */
+  ["inTok", "outTok", "thinkTok", "maxTok", "ttft", "tps", "allow", "thinkMode",
+   "retries", "backoff", "rescale", "ucVal", "ucUnit"].forEach(function(id){
+    var node = $(id);
+    node.addEventListener("input", render);
+    node.addEventListener("change", render);
+  });
+
+  $("addRow").addEventListener("click", function(){
+    layers.push(makeLayer({ type: "other", value: "", unit: "s" }));
+    renderStack(); render();
+  });
+  $("clearRows").addEventListener("click", function(){
+    layers = [];
+    renderStack(); render();
+  });
+
+  var sampleBtn = document.createElement("button");
+  sampleBtn.className = "btn primary";
+  sampleBtn.type = "button";
+  sampleBtn.textContent = "Load sample";
+  sampleBtn.id = "loadSample";
+  sampleBtn.addEventListener("click", loadSample);
+  var host = document.querySelector("#s2 .copyrow");
+  host.insertBefore(sampleBtn, host.firstChild);
+
+  var sampleNote = document.createElement("div");
+  sampleNote.className = "ph";
+  sampleNote.style.marginTop = "-6px";
+  sampleNote.style.marginBottom = "10px";
+  sampleNote.textContent = "The sample is synthetic. It is a plausible long agentic coding request with three deliberate faults planted in the stack, not a measurement of anything.";
+  host.parentNode.insertBefore(sampleNote, host.nextSibling);
+
+  wireCopy($("copyVerdict"), function(){ return window.__ltb ? window.__ltb.verdict : ""; });
+  wireCopy($("copyMd"), function(){ return window.__ltb ? window.__ltb.md : ""; });
+  var snipBtn = document.querySelector('[data-copy="snip1"]');
+  wireCopy(snipBtn, function(){
+    var n = document.getElementById("snip1");
+    return n ? n.textContent : "";
+  });
+
+  layers = defaultStack();
+  renderStack();
+  render();
+})();
+</script>
+</body>
+</html>
