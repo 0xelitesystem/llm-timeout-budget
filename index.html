@@ -17,7 +17,7 @@
 <style>
 :root{
   --bg:#0b0f14; --panel:#111820; --panel2:#0e141b; --line:#1f2b36; --line2:#2b3a48;
-  --tx:#dfe7ef; --mut:#8fa3b5; --dim:#66798c;
+  --tx:#dfe7ef; --mut:#8fa3b5; --dim:#718395;
   --acc:#f0a03c; --acc2:#4fb3ff;
   --pass:#3ecf8e; --fail:#ff6b6b; --warn:#ffb454; --unk:#7d8ea0;
   --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
@@ -26,21 +26,21 @@
 }
 :root[data-theme="light"]{
   --bg:#f6f8fb; --panel:#ffffff; --panel2:#f0f4f8; --line:#dbe3ec; --line2:#c4d1de;
-  --tx:#101820; --mut:#4f6377; --dim:#6c8093;
+  --tx:#101820; --mut:#4f6377; --dim:#5e6f80;
   --acc:#a15b00; --acc2:#0a63b8;
   --pass:#0d7a4f; --fail:#c0362c; --warn:#8a5a00; --unk:#5d6f80;
 }
 @media (prefers-color-scheme: light){
   :root:not([data-theme="dark"]){
     --bg:#f6f8fb; --panel:#ffffff; --panel2:#f0f4f8; --line:#dbe3ec; --line2:#c4d1de;
-    --tx:#101820; --mut:#4f6377; --dim:#6c8093;
+    --tx:#101820; --mut:#4f6377; --dim:#5e6f80;
     --acc:#a15b00; --acc2:#0a63b8;
     --pass:#0d7a4f; --fail:#c0362c; --warn:#8a5a00; --unk:#5d6f80;
   }
 }
 :root[data-theme="dark"]{
   --bg:#0b0f14; --panel:#111820; --panel2:#0e141b; --line:#1f2b36; --line2:#2b3a48;
-  --tx:#dfe7ef; --mut:#8fa3b5; --dim:#66798c;
+  --tx:#dfe7ef; --mut:#8fa3b5; --dim:#718395;
   --acc:#f0a03c; --acc2:#4fb3ff;
   --pass:#3ecf8e; --fail:#ff6b6b; --warn:#ffb454; --unk:#7d8ea0;
 }
@@ -119,8 +119,12 @@ input:disabled{opacity:.5}
 .seg{display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:.7rem;
   white-space:nowrap;overflow:hidden;color:#0b0f14}
 .seg.silent{background:repeating-linear-gradient(45deg,var(--warn),var(--warn) 6px,rgba(0,0,0,.18) 6px,rgba(0,0,0,.18) 12px)}
+/* A labelled stripe segment keeps its stripes above and below, and its label sits on a solid --warn band (WCAG 1.4.3). */
+.seg.silent:not(:empty){background:linear-gradient(var(--warn),var(--warn)) center/100% 18px no-repeat,repeating-linear-gradient(45deg,var(--warn),var(--warn) 6px,rgba(0,0,0,.18) 6px,rgba(0,0,0,.18) 12px)}
 .seg.stream{background:var(--acc2);color:#04121f}
 .seg.allow{background:var(--unk)}
+:root[data-theme="light"] .seg.stream,:root[data-theme="light"] .seg.allow,:root[data-theme="light"] .seg.silent{color:#fff}
+@media (prefers-color-scheme: light){:root:not([data-theme="dark"]) .seg.stream,:root:not([data-theme="dark"]) .seg.allow,:root:not([data-theme="dark"]) .seg.silent{color:#fff}}
 .tlticks{position:relative;height:46px;margin-top:2px}
 .tick{position:absolute;top:0;transform:translateX(-1px)}
 .tick i{display:block;width:2px;height:12px;background:var(--fail)}
@@ -414,7 +418,7 @@ footer a{margin-right:16px}
     </div>
     <div class="calc" style="margin-top:0">
       <h3 style="margin-top:0;font-family:var(--mono);font-size:.78rem;letter-spacing:.1em;text-transform:uppercase;color:var(--acc)">Does streaming help?</h3>
-      <div class="tablewrap" style="margin-top:0;border:0">
+      <div class="tablewrap" style="margin-top:0;border:0" tabindex="0" role="region" aria-label="Does streaming help? comparison table">
         <table class="cmp">
           <thead><tr><th scope="col">Kind</th><th scope="col">Non-streaming</th><th scope="col">Streaming</th><th scope="col">Helps?</th></tr></thead>
           <tbody>
@@ -559,7 +563,7 @@ def stream_with_deadline(url, payload):
   <div id="changesOut"></div>
 
   <h3 style="margin-top:20px">Markdown summary</h3>
-  <div class="out"><pre id="mdOut"></pre></div>
+  <div class="out"><pre id="mdOut" tabindex="0" role="region" aria-label="Markdown summary"></pre></div>
 </section>
 
 <!-- ============ VENDOR REFERENCE ============ -->
