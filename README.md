@@ -2,9 +2,18 @@
 
 Model your worst-case LLM request end to end, check it against every timeout between your code and the API, and find out whether streaming saves you or does nothing at all.
 
-## Live demo
+**Live demo:** https://0xelitesystem.github.io/llm-timeout-budget/
 
-https://0xelitesystem.github.io/llm-timeout-budget/
+## Use
+
+1. In **The request model**, enter expected input, visible output and reasoning tokens, your observed time to first token and output tokens per second, then pick a scenario.
+2. In **The timeout stack**, add each layer between your code and the provider, with its kind (idle, total or execution), its value and its unit.
+3. Set the retry count and the total backoff across retries.
+4. Read the per-layer verdicts and the headline naming which layer kills the request first, then press **Copy verdict** or **Copy markdown summary**.
+
+## Why this exists
+
+A long LLM request that works locally can still 504 in staging, because some timeout between your code and the provider fires first, and streaming only helps against one kind of timeout. This tool models the request and checks it against every layer so you see which one fails before production does. It is one HTML file that runs in your browser, with no tracking and no server, under the MIT license.
 
 ## Features
 
@@ -106,6 +115,21 @@ On heartbeats: server-sent events allow comment frames, and a stream that emits 
 ## Privacy
 
 Everything runs locally in your browser. The page makes no network requests of any kind: no analytics, no telemetry, no fonts, no external dependencies of any sort. Nothing you type leaves your machine, and nothing is stored anywhere except your light/dark theme preference in `localStorage`. There is no API key field because the tool never calls an API.
+
+The source links on the page go to external sites only when you click them.
+
+## Run locally
+
+```bash
+git clone https://github.com/0xelitesystem/llm-timeout-budget
+cd llm-timeout-budget
+```
+
+Open `index.html` in any modern browser. Or serve the folder with `python -m http.server 8000` and visit http://localhost:8000/.
+
+## Build
+
+No build step. The whole tool is one `index.html` file with its CSS and JavaScript inline, and nothing to install.
 
 ## License
 
