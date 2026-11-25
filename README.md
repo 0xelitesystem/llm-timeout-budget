@@ -109,7 +109,7 @@ On heartbeats: server-sent events allow comment frames, and a stream that emits 
 - [llm-sse-dump-reassembler](https://0xelitesystem.github.io/llm-sse-dump-reassembler/) - the postmortem sibling. That one diagnoses a stream that already died from its raw event dump; this one is the preflight that tells you which layer would have killed it.
 - [idempotency-and-safe-retries-reference](https://github.com/0xelitesystem/idempotency-and-safe-retries-reference) - before you retry a timed-out request that may already have been processed.
 - [retry-after-probe](https://0xelitesystem.github.io/retry-after-probe/) - for empirically probing a live endpoint, which this tool deliberately does not do.
-- [http-status-codes-reference](https://github.com/0xelitesystem/http-status-codes-reference) - for reading the 504 you got.
+- [http-status-classes-reference](https://github.com/0xelitesystem/http-status-classes-reference) - for reading the 504 you got.
 - [cli-http-request-builder](https://0xelitesystem.github.io/cli-http-request-builder/) - for reproducing the request by hand.
 
 ## Privacy
