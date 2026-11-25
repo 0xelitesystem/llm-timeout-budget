@@ -110,7 +110,7 @@ On heartbeats: server-sent events allow comment frames, and a stream that emits 
 - [idempotency-and-safe-retries-reference](https://github.com/0xelitesystem/idempotency-and-safe-retries-reference) - before you retry a timed-out request that may already have been processed.
 - [retry-after-probe](https://0xelitesystem.github.io/retry-after-probe/) - for empirically probing a live endpoint, which this tool deliberately does not do.
 - [http-status-codes-reference](https://github.com/0xelitesystem/http-status-codes-reference) - for reading the 504 you got.
-- [curl-command-builder](https://0xelitesystem.github.io/curl-command-builder/) - for reproducing the request by hand.
+- [cli-http-request-builder](https://0xelitesystem.github.io/cli-http-request-builder/) - for reproducing the request by hand.
 
 ## Privacy
 
