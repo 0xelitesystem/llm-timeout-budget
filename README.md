@@ -108,7 +108,7 @@ On heartbeats: server-sent events allow comment frames, and a stream that emits 
 - [retry-backoff-calculator](https://0xelitesystem.github.io/retry-backoff-calculator/) - compute the delay between attempts there and bring the worst-case wait here as the backoff input. This tool deliberately does not re-implement a backoff table.
 - [llm-sse-dump-reassembler](https://0xelitesystem.github.io/llm-sse-dump-reassembler/) - the postmortem sibling. That one diagnoses a stream that already died from its raw event dump; this one is the preflight that tells you which layer would have killed it.
 - [idempotency-and-safe-retries-reference](https://github.com/0xelitesystem/idempotency-and-safe-retries-reference) - before you retry a timed-out request that may already have been processed.
-- [rate-limit-tester](https://0xelitesystem.github.io/rate-limit-tester/) - for empirically probing a live endpoint, which this tool deliberately does not do.
+- [retry-after-probe](https://0xelitesystem.github.io/retry-after-probe/) - for empirically probing a live endpoint, which this tool deliberately does not do.
 - [http-status-codes-reference](https://github.com/0xelitesystem/http-status-codes-reference) - for reading the 504 you got.
 - [curl-command-builder](https://0xelitesystem.github.io/curl-command-builder/) - for reproducing the request by hand.
 
